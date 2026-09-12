@@ -3,18 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vox Undub Editor</title>
+<title>Undub Editor</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header id="topbar">
-  <div class="brand">Vox Undub Editor</div>
+  <div class="brand">Undub Editor</div>
+  <select id="dataset" title="Dataset (vox_editor/datasets.json)"></select>
   <div id="provider" class="pill" title="Translation provider (vox_editor/config.json or VOX_TRANSLATE_* env vars)"></div>
   <div id="progress" class="muted"></div>
   <a id="reviewLink" class="pill" href="review.html" title="Step through lines one at a time and pick Sugoi (A) or Gemma (B)">A/B review →</a>
   <div class="spacer"></div>
   <span id="saveState" class="muted"></span>
-  <label class="muted" title="What a newline inside a subtitle becomes on export. USA data mostly uses \r (2979×) vs ｜ (283×).">
+  <label class="muted" title="What a newline inside a subtitle becomes on export. Defaults per dataset: vox USA data mostly uses \r, demo/zMovie use ｜.">
     line break
     <select id="lineBreak"><option value="\r">\r</option><option value="｜">｜</option></select>
   </label>
@@ -112,7 +113,7 @@
     <li><b>⌘Z / ⇧⌘Z</b> undo/redo (structural edits and text commits).</li>
     <li><b>[ / ]</b> previous / next conversation in the current list.</li>
     <li>Focusing a chunk highlights the USA lines LaBSE aligns it with; <b>→</b> on a USA line copies it into the focused chunk as a subtitle.</li>
-    <li>Edits autosave to <code>vox_editor_state.json</code>. Export writes a voxText-jpn-format file; untouched conversations and un-subtitled chunks keep their original JPN text.</li>
+    <li>Edits autosave to <code>vox_editor_state.json</code>. Export writes the same [text, timing] JSON format into <code>exports/</code>; untouched conversations and un-subtitled chunks keep their original JPN text.</li>
   </ul>
   <form method="dialog"><button>Close</button></form>
 </dialog>

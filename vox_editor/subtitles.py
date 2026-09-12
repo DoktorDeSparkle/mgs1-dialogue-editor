@@ -9,10 +9,11 @@ def jpn_plain(raw):
 
     def ruby(m):
         base, _, reading = m.group(1).partition("、")
-        return f"{base}（{reading}）" if reading else base
+        # a Latin base (FOX HOUND) is already the term; a kanji base keeps its reading
+        return f"{base}（{reading}）" if reading and not re.search(r"[A-Za-z]", base) else base
 
-    s = re.sub(r"＃｛([^｝]*)｝＃?", ruby, s)
-    return re.sub(r"[｜\r\n]", " ", re.sub(r"[＃｛｝]", "", s)).strip()
+    s = re.sub(r"[#＃]｛([^｝]*)｝[#＃]?", ruby, s)  # vox uses ＃, demo uses #
+    return re.sub(r"[｜\r\n]", " ", re.sub(r"[#＃｛｝]", "", s)).strip()
 
 
 def needs_mt(text):

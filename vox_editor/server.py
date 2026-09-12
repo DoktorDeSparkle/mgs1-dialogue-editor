@@ -1,11 +1,13 @@
-"""Vox undub subtitle editor — local web GUI.
+"""Undub subtitle editor (vox, demo, zMovie) — local web GUI.
 
 Run:  .venv/bin/python vox_editor/server.py   (then open http://127.0.0.1:8765)
 
-Stdlib only (no Flask). Serves the static UI, the vox data + vector-match
-metadata, persists editing state to vox_editor_state.json, proxies translation
-requests (so API keys stay server-side and CORS is a non-issue), and exports a
-voxText-jpn-format JSON with the edited English subtitles.
+Stdlib only (no Flask). Datasets are defined in vox_editor/datasets.json; they all
+share the [textDict, timingDict] JSON format. For the selected dataset (?ds= on GET,
+"ds" in POST bodies, default "vox") it serves the text + vector-match metadata,
+persists editing state to that dataset's state file, proxies translation requests
+(so API keys stay server-side), and exports the edited English subtitles in the
+same JSON format into exports/.
 
 Translation provider is configured via env vars or vox_editor/config.json
 (see config.example.json).
@@ -18,14 +20,14 @@ import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = Path(__file__).resolve().parent / "static"
-STATE_PATH = Path(os.environ.get("VOX_EDITOR_STATE", ROOT / "vox_editor_state.json"))
-DEFAULT_EXPORT = ROOT / "voxText-jpn-en.json"
+EXPORT_DIR = ROOT / "exports"
 PORT = int(os.environ.get("VOX_EDITOR_PORT", "8765"))
 
 
@@ -59,10 +61,33 @@ def load_config():
     return cfg
 
 
+def load_datasets():
+    return {k: v for k, v in load_json(Path(__file__).parent / "datasets.json", {}).items() if not k.startswith("_")}
+
+
+def dataset(ds):
+    cfgs = load_datasets()
+    if ds not in cfgs:
+        raise ValueError(f"unknown dataset {ds!r}; configured: {', '.join(cfgs)}")
+    return cfgs[ds]
+
+
+def state_path(ds="vox"):
+    override = os.environ.get("VOX_EDITOR_STATE_DIR")  # for tests: keep real state untouched
+    if override:
+        return Path(override) / f"{ds}.json"
+    return ROOT / dataset(ds)["state"]
+
+
+STATE_PATH = state_path("vox")  # back-compat for scripts importing it
+
+
 @contextlib.contextmanager
-def state_lock():
+def state_lock(ds="vox"):
     """Cross-process lock so the editor and batch_translate.py never clobber each other's writes."""
-    with open(STATE_PATH.with_suffix(".lock"), "w") as fh:
+    path = state_path(ds)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path.with_suffix(".lock"), "w") as fh:
         fcntl.flock(fh, fcntl.LOCK_EX)
         try:
             yield
@@ -70,10 +95,15 @@ def state_lock():
             fcntl.flock(fh, fcntl.LOCK_UN)
 
 
-def write_state(state):
-    tmp = STATE_PATH.with_suffix(".tmp")
+def load_state(ds="vox"):
+    return load_json(state_path(ds), {"convs": {}})
+
+
+def write_state(state, ds="vox"):
+    path = state_path(ds)
+    tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
-    tmp.replace(STATE_PATH)
+    tmp.replace(path)
 
 
 # ---------------------------------------------------------------- translation
@@ -232,20 +262,24 @@ def merge_background(disk, incoming):
 
 # ---------------------------------------------------------------- review decisions
 
-_JPN = None
+_JPN = {}
+
+
+def jpn_data(ds):
+    if ds not in _JPN:
+        _JPN[ds] = load_json(ROOT / dataset(ds)["jpn"])
+    return _JPN[ds]
 
 
 def decide(req):
     """Apply an A/B review decision to the *current* state on disk (the batch pass may
     be writing concurrently, so never save a whole stale conversation).
-    req: {key, lines, choice: engine name | "edit", text} or {key, lines, restore: chunk}."""
-    global _JPN
+    req: {ds, key, lines, choice: engine name | "edit", text} or {ds, key, lines, restore: chunk}."""
     from subtitles import auto_subs
 
-    if _JPN is None:
-        _JPN = load_json(ROOT / "voxText-jpn.json")
-    with state_lock():
-        state = load_json(STATE_PATH, {"convs": {}})
+    ds = req.get("ds", "vox")
+    with state_lock(ds):
+        state = load_state(ds)
         conv = state["convs"].get(req["key"])
         chunk = next((c for c in (conv or {}).get("chunks", []) if c["lines"] == req["lines"]), None)
         if chunk is None:
@@ -260,9 +294,9 @@ def decide(req):
             if req["choice"] == "edit":
                 chunk["mtEdited"] = True
             if not chunk.get("subsEdited") and not chunk.get("timingEdited"):
-                auto_subs(chunk, req["text"], _JPN[req["key"]][1])
+                auto_subs(chunk, req["text"], jpn_data(ds)[req["key"]][1])
         conv["updated"] = __import__("datetime").datetime.now().isoformat()
-        write_state(state)
+        write_state(state, ds)
     return {"ok": True, "prev": prev, "chunk": chunk}
 
 
@@ -286,21 +320,32 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
 
     def do_GET(self):
-        if self.path == "/api/data":
-            cfg = load_config()
-            return self.send_json({
-                "usa": load_json(ROOT / "voxText-usa.json"),
-                "jpn": load_json(ROOT / "voxText-jpn.json"),
-                "candidates": load_json(ROOT / "jpn_to_usa_candidates.json", []),
-                "dual": load_json(ROOT / "vox_dual_scores.json", []),
-                "hungarian": load_json(ROOT / "vox_matches_min2.json", []),
-                "alignments": load_json(ROOT / "line_alignments.json", {}),
-                "state": load_json(STATE_PATH, {"convs": {}}),
-                "primary": cfg["primary"],
-                "engines": [{"name": n, "provider": e["provider"], "model": e.get("model")} for n, e in cfg["engines"].items()],
-                "export_path": str(DEFAULT_EXPORT.name),
-            })
-        path = "/index.html" if self.path in ("/", "") else self.path.split("?")[0]
+        path, _, query = self.path.partition("?")
+        if path == "/api/data":
+            try:
+                ds = urllib.parse.parse_qs(query).get("ds", ["vox"])[0]
+                d = dataset(ds)
+                cfg = load_config()
+                opt = lambda k, default: load_json(ROOT / d[k], default) if d.get(k) else default  # noqa: E731
+                return self.send_json({
+                    "ds": ds,
+                    "datasets": [{"name": k, "label": v.get("label", k)} for k, v in load_datasets().items()],
+                    "same_id": bool(d.get("same_id")),
+                    "usa": load_json(ROOT / d["usa"]),
+                    "jpn": load_json(ROOT / d["jpn"]),
+                    "candidates": opt("candidates", []),
+                    "dual": opt("dual", []),
+                    "hungarian": opt("hungarian", []),
+                    "alignments": opt("alignments", {}),
+                    "state": load_state(ds),
+                    "primary": cfg["primary"],
+                    "engines": [{"name": n, "provider": e["provider"], "model": e.get("model")} for n, e in cfg["engines"].items()],
+                    "export_path": d.get("export", f"{ds}-undub.json"),
+                    "line_break": d.get("line_break", "\r"),
+                })
+            except Exception as e:  # noqa: BLE001
+                return self.send_json({"error": f"{type(e).__name__}: {e}"}, 500)
+        path = "/index.html" if path in ("/", "") else path
         f = (STATIC / path.lstrip("/")).resolve()
         if STATIC not in f.parents or not f.is_file():
             self.send_error(404)
@@ -316,24 +361,27 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             req = self.read_body()
+            ds = req.get("ds", "vox")
             if self.path == "/api/save":
-                with state_lock():
-                    state = load_json(STATE_PATH, {"convs": {}})
+                with state_lock(ds):
+                    state = load_state(ds)
                     state["convs"][req["key"]] = merge_background(state["convs"].get(req["key"]), req["conv"])
-                    write_state(state)
+                    write_state(state, ds)
                 return self.send_json({"ok": True})
             if self.path == "/api/decide":
                 return self.send_json(decide(req))
             if self.path == "/api/translate":
                 return self.send_json({"text": translate(req), "engine": req.get("engine") or load_config()["primary"]})
             if self.path == "/api/export":
-                name = Path(req.get("filename") or DEFAULT_EXPORT.name).name  # keep inside project dir
-                if not name.endswith(".json") or name in ("voxText-jpn.json", "voxText-usa.json"):
-                    raise ValueError("refusing to overwrite source data; pick another .json name")
-                with state_lock():
-                    state = load_json(STATE_PATH, {"convs": {}})
-                n = export(state, load_json(ROOT / "voxText-jpn.json"), ROOT / name, req.get("line_break", "\r"))
-                return self.send_json({"ok": True, "path": name, "edited": n})
+                d = dataset(ds)
+                name = Path(req.get("filename") or d.get("export") or f"{ds}-undub.json").name  # always inside exports/
+                if not name.endswith(".json"):
+                    raise ValueError("export filename must end in .json")
+                with state_lock(ds):
+                    state = load_state(ds)
+                EXPORT_DIR.mkdir(exist_ok=True)
+                n = export(state, load_json(ROOT / d["jpn"]), EXPORT_DIR / name, req.get("line_break") or d.get("line_break", "\r"))
+                return self.send_json({"ok": True, "path": f"exports/{name}", "edited": n})
             self.send_error(404)
         except urllib.error.HTTPError as e:
             self.send_json({"error": f"HTTP {e.code}: {e.read().decode('utf-8', 'replace')[:500]}"}, 502)
@@ -343,5 +391,6 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     cfg = load_config()
-    print(f"Vox editor on http://127.0.0.1:{PORT}  (engines: {', '.join(cfg['engines'])}; primary: {cfg['primary']})")
+    print(f"Undub editor on http://127.0.0.1:{PORT}  (datasets: {', '.join(load_datasets())}; "
+          f"engines: {', '.join(cfg['engines'])}; primary: {cfg['primary']})")
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

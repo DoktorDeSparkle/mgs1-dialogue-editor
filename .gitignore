@@ -5,3 +5,4 @@ __pycache__/
 *.lock
 *.tmp
 batch_translate_errors.json
+batch_translate_errors-*.json

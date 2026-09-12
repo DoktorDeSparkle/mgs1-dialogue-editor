@@ -1,0 +1,65 @@
+{
+  "_comment": "Paths are relative to the project root. 'source' records where the snapshot in data/ came from (mgs1-undub workingFiles). same_id: JPN and USA keys correspond 1:1, so the USA reference defaults to the same key. line_break: what a newline inside a subtitle becomes on export (vox USA data mostly uses \\r, demo/zMovie use ｜).",
+  "vox": {
+    "label": "Vox (disc 1)",
+    "jpn": "voxText-jpn.json",
+    "usa": "voxText-usa.json",
+    "state": "vox_editor_state.json",
+    "export": "voxText-jpn-undub-d1.json",
+    "candidates": "jpn_to_usa_candidates.json",
+    "alignments": "line_alignments.json",
+    "dual": "vox_dual_scores.json",
+    "hungarian": "vox_matches_min2.json",
+    "same_id": false,
+    "source": "mgs1-undub/workingFiles/{jpn,usa}-d1/vox/voxText-*.json",
+    "line_break": "\r"
+  },
+  "demo-d1": {
+    "label": "Demo (disc 1)",
+    "jpn": "data/demo-d1/demoText-jpn.json",
+    "usa": "data/demo-d1/demoText-usa.json",
+    "state": "state/demo-d1.json",
+    "export": "demoText-jpn-undub-d1.json",
+    "candidates": "match/demo-d1-candidates.json",
+    "alignments": "match/demo-d1-alignments.json",
+    "same_id": true,
+    "source": "mgs1-undub/workingFiles/{jpn,usa}-d1/demo/demoText-*.json",
+    "line_break": "｜"
+  },
+  "demo-d2": {
+    "label": "Demo (disc 2)",
+    "jpn": "data/demo-d2/demoText-jpn.json",
+    "usa": "data/demo-d2/demoText-usa.json",
+    "state": "state/demo-d2.json",
+    "export": "demoText-jpn-undub-d2.json",
+    "candidates": "match/demo-d2-candidates.json",
+    "alignments": "match/demo-d2-alignments.json",
+    "same_id": true,
+    "source": "mgs1-undub/workingFiles/{jpn,usa}-d2/demo/demoText-*.json",
+    "line_break": "｜"
+  },
+  "zmovie-d1": {
+    "label": "zMovie (disc 1)",
+    "jpn": "data/zmovie-d1/zMovie-jpn.json",
+    "usa": "data/zmovie-d1/zMovie-usa.json",
+    "state": "state/zmovie-d1.json",
+    "export": "zMovie-jpn-d1-undub.json",
+    "candidates": "match/zmovie-d1-candidates.json",
+    "alignments": "match/zmovie-d1-alignments.json",
+    "same_id": true,
+    "source": "mgs1-undub/workingFiles/{jpn,usa}-d1/zmovie/zMovie-out.json",
+    "line_break": "｜"
+  },
+  "zmovie-d2": {
+    "label": "zMovie (disc 2)",
+    "jpn": "data/zmovie-d2/zMovie-jpn.json",
+    "usa": "data/zmovie-d2/zMovie-usa.json",
+    "state": "state/zmovie-d2.json",
+    "export": "zMovie-jpn-d2-undub.json",
+    "candidates": "match/zmovie-d2-candidates.json",
+    "alignments": "match/zmovie-d2-alignments.json",
+    "same_id": true,
+    "source": "mgs1-undub/workingFiles/{jpn,usa}-d2/zmovie/zMovie-out.json",
+    "line_break": "｜"
+  }
+}

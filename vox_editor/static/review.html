@@ -66,6 +66,7 @@
 <body>
 <header id="topbar">
   <div class="brand">A/B Review</div>
+  <div id="dsLabel" class="pill"></div>
   <div id="counts" class="muted"></div>
   <div class="spacer"></div>
   <div class="opts">
@@ -96,6 +97,8 @@
 const LEAD = 4;   // chunks of lead-up context
 const AGREE_WARN = 0.8;
 const $ = (s) => document.querySelector(s);
+const DS = new URLSearchParams(location.search).get("ds") || "vox";
+const LAST_KEY = `vox-review-last-${DS}`;
 let D, JPN, PRIMARY, ALT, queue = [], pos = 0, history_ = [], editing = false, sessionDone = 0;
 const skipped = new Set();
 
@@ -116,7 +119,9 @@ function toast(msg, err = false, ms = 3500) {
   clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), ms);
 }
 async function api(path, body) {
-  const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+  const r = body
+    ? await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ds: DS, ...body }) })
+    : await fetch(`${path}?ds=${encodeURIComponent(DS)}`);
   const j = await r.json();
   if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
   return j;
@@ -126,14 +131,14 @@ async function api(path, body) {
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const stripTags = (s) => s.replace(/‹[A-Z]+›/g, "");
 function jpnHtml(raw) {
-  let s = esc(stripTags(raw)).replace(/＃｛([^｝]*)｝＃?/g, (_, inner) => {
+  let s = esc(stripTags(raw)).replace(/[#＃]｛([^｝]*)｝[#＃]?/g, (_, inner) => {
     const [base, ...rest] = inner.split("、");
     return rest.length ? `<ruby>${base}<rt>${rest.join("、")}</rt></ruby>` : base;
   });
-  return s.replace(/[＃｛｝]/g, "").replace(/｜/g, "\n").trim();
+  return s.replace(/[#＃｛｝]/g, "").replace(/｜/g, "\n").trim();
 }
 function jpnPlain(raw) {
-  return stripTags(raw).replace(/＃｛([^｝]*)｝＃?/g, (_, inner) => inner.split("、")[0]).replace(/[＃｛｝]/g, "").replace(/[｜\r\n]/g, " ").trim();
+  return stripTags(raw).replace(/[#＃]｛([^｝]*)｝[#＃]?/g, (_, inner) => inner.split("、")[0]).replace(/[#＃｛｝]/g, "").replace(/[｜\r\n]/g, " ").trim();
 }
 const chunkJp = (key, c) => c.lines.map((k) => jpnPlain(JPN[key][0][k] || "")).join("");
 const norm = (s) => (s || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
@@ -195,7 +200,7 @@ function render() {
     h("span", { class: "muted small" }, `chunk ${it.idx + 1} of ${n}`),
     it.same ? h("span", { class: "agree same" }, "engines agree")
       : it.agree != null ? h("span", { class: "agree" + (it.agree < AGREE_WARN ? " low" : "") }, `agreement ${it.agree.toFixed(2)}`) : null,
-    h("a", { href: `/#${it.key}`, onclick: (e) => { e.preventDefault(); finish(); } }, "open in editor")));
+    h("a", { href: `/?ds=${DS}#${it.key}`, onclick: (e) => { e.preventDefault(); finish(); } }, "open in editor")));
 
   // lead-up context: previous chunks, JP + chosen English
   const lead = h("div", { class: "lead" });
@@ -296,18 +301,20 @@ async function back() {
 function finish() {
   // every decision is saved the moment it's made; just remember where we were and leave
   const it = queue[pos];
-  try { localStorage.setItem("vox-review-last", it ? id(it) : ""); } catch {}
-  location.href = "/" + (it ? "#" + it.key : history_.length ? "#" + history_.at(-1).it.key : "");
+  try { localStorage.setItem(LAST_KEY, it ? id(it) : ""); } catch {}
+  location.href = `/?ds=${encodeURIComponent(DS)}` + (it ? "#" + it.key : history_.length ? "#" + history_.at(-1).it.key : "");
 }
 
 async function load() {
   D = await api("/api/data");
   JPN = D.jpn; PRIMARY = D.primary;
+  const label = D.datasets.find((d) => d.name === DS)?.label || DS;
+  $("#dsLabel").textContent = label; document.title = `${label} · A/B Review`;
   ALT = D.engines.map((e) => e.name).find((n) => n !== PRIMARY);
   if (!ALT) { $("#stage").append(h("div", { class: "done-card" }, h("h2", {}, "Only one engine configured"), h("p", {}, "A/B review needs two engines in vox_editor/config.json."))); return; }
   buildQueue();
   // resume at the item in the URL / last session if it's still pending
-  const want = decodeURIComponent(location.hash.slice(1)) || (() => { try { return localStorage.getItem("vox-review-last"); } catch { return ""; } })();
+  const want = decodeURIComponent(location.hash.slice(1)) || (() => { try { return localStorage.getItem(LAST_KEY); } catch { return ""; } })();
   const i = queue.findIndex((q) => id(q) === want);
   if (i > 0 && $("#order").value === "game") { pos = i; render(); }
 }

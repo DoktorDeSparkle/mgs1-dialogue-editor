@@ -23,6 +23,7 @@ const pending = new Set();    // chunk objects being translated
 let translateAllRun = null;   // {stop: bool}
 
 const $ = (s) => document.querySelector(s);
+const DS = new URLSearchParams(location.search).get("ds") || "vox"; // dataset from vox_editor/datasets.json
 
 function h(tag, attrs = {}, ...kids) {
   const el = document.createElement(tag);
@@ -44,7 +45,9 @@ function toast(msg, err = false, ms = 3500) {
 }
 
 async function api(path, body) {
-  const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+  const r = body
+    ? await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ds: DS, ...body }) })
+    : await fetch(`${path}?ds=${encodeURIComponent(DS)}`);
   const j = await r.json();
   if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
   return j;
@@ -57,19 +60,20 @@ const stripTags = (s) => s.replace(/‹[A-Z]+›/g, "");
 // JPN markup -> HTML with <ruby> for ＃｛base、reading｝＃ blocks
 function jpnHtml(raw) {
   let s = esc(stripTags(raw));
-  s = s.replace(/＃｛([^｝]*)｝＃?/g, (_, inner) => {
+  s = s.replace(/[#＃]｛([^｝]*)｝[#＃]?/g, (_, inner) => { // vox uses ＃, demo uses #
     const [base, ...rest] = inner.split("、");
     return rest.length ? `<ruby>${base}<rt>${rest.join("、")}</rt></ruby>` : base;
   });
-  return s.replace(/[＃｛｝]/g, "").replace(/｜/g, "\n").trim();
+  return s.replace(/[#＃｛｝]/g, "").replace(/｜/g, "\n").trim();
 }
 // JPN markup -> plain text for MT: base（reading）
 function jpnPlain(raw) {
-  let s = stripTags(raw).replace(/＃｛([^｝]*)｝＃?/g, (_, inner) => {
+  let s = stripTags(raw).replace(/[#＃]｛([^｝]*)｝[#＃]?/g, (_, inner) => {
     const [base, ...rest] = inner.split("、");
-    return rest.length ? `${base}（${rest.join("、")}）` : base;
+    // a Latin base (FOX HOUND) is already the term; a kanji base keeps its reading (漢字（かんじ）)
+    return rest.length && !/[A-Za-z]/.test(base) ? `${base}（${rest.join("、")}）` : base;
   });
-  return s.replace(/[＃｛｝]/g, "").replace(/[｜\r\n]/g, " ").trim();
+  return s.replace(/[#＃｛｝]/g, "").replace(/[｜\r\n]/g, " ").trim();
 }
 const usaText = (raw) => raw.replace(/\r\n?|｜/g, "\n").replace(/[ \t]+\n/g, "\n").trim();
 
@@ -164,7 +168,7 @@ const STATUS_LABEL = { todo: "To do", mt: "MT draft", wip: "In progress", done: 
 function newConv(jk) {
   return {
     status: "todo",
-    usa_ref: CAND.get(jk)?.candidates?.[0]?.usa_key || HUNG.get(jk)?.usa_key || null,
+    usa_ref: (D.same_id && lineKeysOf(D.usa[jk]).length ? jk : null) || CAND.get(jk)?.candidates?.[0]?.usa_key || HUNG.get(jk)?.usa_key || null,
     chunks: lineKeysOf(D.jpn[jk]).map((k) => ({ lines: [k], mt: "", subs: [] })),
   };
 }
@@ -636,7 +640,7 @@ function bind() {
     else if (k === "k" || ev.key === "ArrowUp") { ev.preventDefault(); setFocus(focusIdx - 1, true); }
     else return;
   });
-  window.addEventListener("beforeunload", () => { if (conv && $("#saveState").textContent === "unsaved…") navigator.sendBeacon?.("/api/save", new Blob([JSON.stringify({ key: cur, conv })], { type: "application/json" })); });
+  window.addEventListener("beforeunload", () => { if (conv && $("#saveState").textContent === "unsaved…") navigator.sendBeacon?.("/api/save", new Blob([JSON.stringify({ ds: DS, key: cur, conv })], { type: "application/json" })); });
 }
 
 (async function main() {
@@ -647,6 +651,12 @@ function bind() {
   STATE = D.state?.convs ? D.state : { convs: {} };
   $("#provider").textContent = `MT: ${D.engines.map((e) => e.name + (e.name === D.primary ? " (primary)" : "")).join(" + ")}`;
   $("#exportName").value = D.export_path;
+  $("#lineBreak").value = D.line_break === "\r" ? "\\r" : "｜";
+  const dsSel = $("#dataset");
+  for (const d of D.datasets) dsSel.append(h("option", { value: d.name, selected: d.name === DS }, d.label));
+  dsSel.onchange = () => { location.href = `/?ds=${encodeURIComponent(dsSel.value)}`; };
+  $("#reviewLink").href = `review.html?ds=${encodeURIComponent(DS)}`;
+  document.title = `${D.datasets.find((d) => d.name === DS)?.label || DS} · Undub Editor`;
   bind();
   renderList();
   const start = decodeURIComponent(location.hash.slice(1));
