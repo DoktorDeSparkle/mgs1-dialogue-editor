@@ -78,6 +78,14 @@ line-F1 alone.
   lead-up context + next line + aligned US dub line, keys A/B/E(dit)/S(kip)/⌫(undo), "Finish for now" returns to the
   editor. Decisions go through `/api/decide`, which patches the on-disk state under the lock (never a stale whole conv).
   Chunk flags: `decided` / `mtEdited` / `subsEdited` / `timingEdited` lock a chunk against batch overwrites.
+- **Datasets** (`vox_editor/datasets.json`): `vox`, `demo-d1`, `demo-d2`, `zmovie-d1`, `zmovie-d2` — all the same
+  `[textDict, timingDict]` format. Demo/zMovie snapshots live in `data/` (copied from `mgs1-undub/workingFiles/`),
+  per-dataset editor state in `state/` (vox keeps `vox_editor_state.json`), exports go to `exports/`. Demo/zMovie keys
+  correspond 1:1 JPN↔USA (`same_id`), so the USA reference defaults to the same key; `match_dataset.py` still builds
+  candidates + line alignments into `match/`. Demo JSON writes ruby as half-width `#｛base、reading｝#`. Export line break
+  is per dataset (vox `\r`, demo/zMovie `｜`). Editor/review take `?ds=`; batch takes `--dataset`; `run_all_mt.sh` runs
+  every dataset then scores agreement.
+- `mt_bakeoff/` — record of the translation model comparison (script, raw results, HTML report).
 - `.venv/` — local venv with `sentence-transformers`, `scipy`, `numpy`
 
 ## Open threads / next steps

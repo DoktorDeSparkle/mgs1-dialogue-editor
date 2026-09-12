@@ -76,7 +76,12 @@
         <option value="game">Game order</option>
       </select>
     </label>
-    <label><input type="checkbox" id="skipSame" checked> Skip lines where both agree</label>
+    <label title="Agreement is LaBSE similarity between the two English translations (from batch_translate.py --score)">Show
+      <select id="scope">
+        <option value="differ">All lines where they differ</option>
+        <option value="disagree">Only real disagreements (&lt; 0.70)</option>
+      </select>
+    </label>
     <label title="Only conversations with at least this many lines">
       <select id="minLines"><option value="1">≥1 line</option><option value="2" selected>≥2 lines</option><option value="3">≥3 lines</option></select>
     </label>
@@ -95,7 +100,7 @@
 <script>
 "use strict";
 const LEAD = 4;   // chunks of lead-up context
-const AGREE_WARN = 0.8;
+const AGREE_WARN = 0.7; // same as app.js: below this the engines read the line differently
 const $ = (s) => document.querySelector(s);
 const DS = new URLSearchParams(location.search).get("ds") || "vox";
 const LAST_KEY = `vox-review-last-${DS}`;
@@ -151,7 +156,7 @@ const parseTiming = (s) => String(s || "0,0").split(",").map(Number);
 
 // ---- queue
 function buildQueue() {
-  const order = $("#order").value, skipSame = $("#skipSame").checked, minLines = +$("#minLines").value;
+  const order = $("#order").value, scope = $("#scope").value, minLines = +$("#minLines").value;
   const items = [];
   let total = 0, decided = 0;
   for (const key of Object.keys(JPN)) {
@@ -163,7 +168,8 @@ function buildQueue() {
       const a = c.mts?.[PRIMARY], b = c.mts?.[ALT];
       if (!a || !b) return;
       const same = norm(a) === norm(b);
-      if (skipSame && same) return;
+      if (same) return;
+      if (scope === "disagree" && !(c.mt_agree != null && c.mt_agree < AGREE_WARN)) return;
       total++;
       if (c.decided) { decided++; return; }
       const agree = c.mt_agree ?? null;
@@ -336,7 +342,7 @@ document.addEventListener("keydown", (ev) => {
   else if (ev.key === "Escape") finish();
   else return;
 });
-["#order", "#skipSame", "#minLines"].forEach((s) => $(s).addEventListener("change", buildQueue));
+["#order", "#scope", "#minLines"].forEach((s) => $(s).addEventListener("change", buildQueue));
 $("#reloadBtn").onclick = async () => { const n = queue.length; await load(); toast(`Queue reloaded: ${queue.length} lines left (was ${n})`); };
 $("#finishBtn").onclick = finish;
 load().catch((e) => toast("Failed to load: " + e.message, true, 60000));

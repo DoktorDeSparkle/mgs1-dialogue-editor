@@ -4,7 +4,7 @@
 const ROW_WIDTH = 40;   // USA subtitle rows: p95 39, p99 42 chars
 const MAX_ROWS = 2;     // auto-split target; >3 rows gets flagged
 const STRONG_SIM = 0.45; // LaBSE line sim considered a confident line alignment
-const AGREE_WARN = 0.8;  // LaBSE sim between engines' English below this = the models read the line differently
+const AGREE_WARN = 0.7;  // LaBSE sim between engines' English; sampled: >=0.72 paraphrase, 0.6-0.7 real meaning differences
 
 // ------------------------------------------------------------------ globals
 let D = null;                 // server data
