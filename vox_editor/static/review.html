@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vox A/B Review</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { overflow: auto; }
+  [hidden] { display: none !important; }
+  #stage { display: flex; flex-direction: column; gap: 14px; }
+  #topbar a { color: var(--muted); }
+  .rv { max-width: 980px; width: 100%; margin: 0 auto; padding: 18px 20px 80px; display: flex; flex-direction: column; gap: 14px; }
+  .meter { height: 4px; background: var(--panel2); border-radius: 2px; overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--good); transition: width .2s; }
+  .where { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .where h2 { margin: 0; font-size: 15px; font-family: var(--mono); font-weight: 500; }
+  .where a { color: var(--accent); font-size: 12px; }
+  .agree { font-family: var(--mono); font-size: 11px; padding: 1px 7px; border-radius: 9px; border: 1px solid var(--line); color: var(--muted); }
+  .agree.low { color: var(--bad); border-color: rgba(224, 104, 95, .5); }
+  .agree.same { color: var(--good); }
+
+  .lead { display: flex; flex-direction: column; gap: 2px; border-left: 2px solid var(--line); padding-left: 12px; }
+  .lead .ctx { display: grid; grid-template-columns: 26px minmax(0, 1fr) minmax(0, 1fr); gap: 10px; padding: 3px 0; font-size: 12.5px; color: var(--muted); }
+  .lead .ctx .no { font-family: var(--mono); font-size: 10px; padding-top: 2px; }
+  .lead .ctx .j { font-family: var(--jp); }
+  .lead .ctx .e { color: #b3bccb; }
+  .lead .ctx .e.pending { font-style: italic; color: var(--muted); }
+  .lead .ctx.decided .e::after { content: " ✓"; color: var(--good); font-size: 11px; }
+  .lead .empty-lead { font-size: 12px; color: var(--muted); font-style: italic; padding: 3px 0; }
+
+  .now { background: var(--panel); border: 1px solid var(--accent-dim); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
+  .now .jp { font-family: var(--jp); font-size: 21px; line-height: 1.6; white-space: pre-wrap; }
+  .now .jp ruby rt { font-size: 10px; color: var(--muted); }
+  .now .meta { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .next { font-family: var(--jp); font-size: 12.5px; color: var(--muted); padding-left: 14px; border-left: 2px dashed var(--line); }
+  .next b { font-family: var(--mono); font-weight: 400; font-size: 10px; margin-right: 8px; }
+
+  .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .choice { text-align: left; display: grid; grid-template-rows: auto 1fr auto; gap: 8px; padding: 12px 14px; border-radius: 8px; background: var(--panel2); border: 1px solid var(--line); min-height: 110px; }
+  .choice:hover, .choice:focus-visible { border-color: var(--accent); outline: none; }
+  .choice .head { display: flex; align-items: center; gap: 8px; }
+  .choice kbd { font-family: var(--mono); font-size: 13px; font-weight: 600; width: 24px; height: 24px; display: inline-grid; place-items: center; border-radius: 5px; border: 1px solid var(--accent); color: var(--accent); }
+  .choice .eng { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .choice .txt { font-size: 16.5px; line-height: 1.45; }
+  .choice .len { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+  .choice.picked { border-color: var(--good); background: rgba(88, 194, 138, .12); }
+  .choice.current::after { content: "currently in use"; font-size: 10px; color: var(--muted); }
+
+  .dub { font-size: 13px; background: #1d1a26; border: 1px solid #332c45; border-radius: 6px; padding: 8px 12px; display: flex; flex-direction: column; gap: 3px; }
+  .dub .label { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: #a594cf; }
+  .dub .sim { font-family: var(--mono); font-size: 10px; color: #a594cf; margin-left: 6px; }
+  .dub.weak { opacity: .6; }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .actions kbd { font-family: var(--mono); font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; margin-left: 4px; }
+  .edit { display: flex; flex-direction: column; gap: 6px; }
+  .edit textarea { font-size: 15px; padding: 8px 10px; min-height: 64px; resize: vertical; }
+  .done-card { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .done-card h2 { color: var(--text); }
+  .opts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .opts label { display: inline-flex; gap: 4px; align-items: center; }
+  @media (max-width: 700px) { .choices { grid-template-columns: 1fr; } .lead .ctx { grid-template-columns: 26px 1fr; } .lead .ctx .j { display: none; } }
+</style>
+</head>
+<body>
+<header id="topbar">
+  <div class="brand">A/B Review</div>
+  <div id="counts" class="muted"></div>
+  <div class="spacer"></div>
+  <div class="opts">
+    <label>Order
+      <select id="order">
+        <option value="disagree">Engines disagree most first</option>
+        <option value="game">Game order</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="skipSame" checked> Skip lines where both agree</label>
+    <label title="Only conversations with at least this many lines">
+      <select id="minLines"><option value="1">≥1 line</option><option value="2" selected>≥2 lines</option><option value="3">≥3 lines</option></select>
+    </label>
+    <button id="reloadBtn" title="Pick up translations the batch pass has added since this page loaded">Reload queue</button>
+  </div>
+  <button id="finishBtn" class="primary" title="Your choices are already saved; returns to the editor at this conversation (Esc)">Finish for now</button>
+</header>
+
+<div class="rv">
+  <div class="meter"><i id="meter" style="width:0"></i></div>
+  <div id="stage"></div>
+</div>
+
+<div id="toast" hidden></div>
+
+<script>
+"use strict";
+const LEAD = 4;   // chunks of lead-up context
+const AGREE_WARN = 0.8;
+const $ = (s) => document.querySelector(s);
+let D, JPN, PRIMARY, ALT, queue = [], pos = 0, history_ = [], editing = false, sessionDone = 0;
+const skipped = new Set();
+
+function h(tag, attrs = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "class") el.className = v;
+    else if (k === "html") el.innerHTML = v;
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid instanceof Node ? kid : String(kid));
+  return el;
+}
+function toast(msg, err = false, ms = 3500) {
+  const t = $("#toast"); t.textContent = msg; t.className = err ? "err" : ""; t.hidden = false;
+  clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), ms);
+}
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+  const j = await r.json();
+  if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+}
+
+// ---- text helpers (same as app.js)
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const stripTags = (s) => s.replace(/‹[A-Z]+›/g, "");
+function jpnHtml(raw) {
+  let s = esc(stripTags(raw)).replace(/＃｛([^｝]*)｝＃?/g, (_, inner) => {
+    const [base, ...rest] = inner.split("、");
+    return rest.length ? `<ruby>${base}<rt>${rest.join("、")}</rt></ruby>` : base;
+  });
+  return s.replace(/[＃｛｝]/g, "").replace(/｜/g, "\n").trim();
+}
+function jpnPlain(raw) {
+  return stripTags(raw).replace(/＃｛([^｝]*)｝＃?/g, (_, inner) => inner.split("、")[0]).replace(/[＃｛｝]/g, "").replace(/[｜\r\n]/g, " ").trim();
+}
+const chunkJp = (key, c) => c.lines.map((k) => jpnPlain(JPN[key][0][k] || "")).join("");
+const norm = (s) => (s || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+function jaccard(a, b) {
+  const A = new Set(norm(a).split(" ")), B = new Set(norm(b).split(" "));
+  const inter = [...A].filter((x) => B.has(x)).length;
+  return inter / (A.size + B.size - inter || 1);
+}
+const parseTiming = (s) => String(s || "0,0").split(",").map(Number);
+
+// ---- queue
+function buildQueue() {
+  const order = $("#order").value, skipSame = $("#skipSame").checked, minLines = +$("#minLines").value;
+  const items = [];
+  let total = 0, decided = 0;
+  for (const key of Object.keys(JPN)) {
+    const conv = D.state.convs[key];
+    if (!conv) continue;
+    const nLines = Object.values(JPN[key][0]).filter((t) => jpnPlain(t)).length;
+    if (nLines < minLines) continue;
+    conv.chunks.forEach((c, idx) => {
+      const a = c.mts?.[PRIMARY], b = c.mts?.[ALT];
+      if (!a || !b) return;
+      const same = norm(a) === norm(b);
+      if (skipSame && same) return;
+      total++;
+      if (c.decided) { decided++; return; }
+      const agree = c.mt_agree ?? null;
+      items.push({ key, idx, lines: c.lines, a, b, same, agree, sortScore: agree ?? jaccard(a, b) * 0.9 + 0.1 });
+    });
+  }
+  if (order === "disagree") items.sort((x, y) => x.sortScore - y.sortScore);
+  // skipped this session go to the back
+  items.sort((x, y) => skipped.has(id(x)) - skipped.has(id(y)));
+  queue = items; pos = 0;
+  $("#counts").textContent = `${decided} of ${total} decided · ${items.length} left`;
+  $("#meter").style.width = total ? `${(decided / total) * 100}%` : "0";
+  render();
+}
+const id = (it) => `${it.key}|${it.lines.join(",")}`;
+
+// ---- render
+function render() {
+  const stage = $("#stage"); stage.replaceChildren(); editing = false;
+  const it = queue[pos];
+  if (!it) {
+    stage.append(h("div", { class: "done-card" },
+      h("h2", {}, "Queue is empty"),
+      h("p", {}, "Every line with two translations has a decision. If the batch pass is still running, Reload queue picks up new lines."),
+      h("button", { class: "primary", onclick: finish }, "Back to editor")));
+    return;
+  }
+  const conv = D.state.convs[it.key], chunk = conv.chunks[it.idx], entry = JPN[it.key];
+  history.replaceState(null, "", "#" + id(it));
+
+  const n = conv.chunks.length;
+  stage.append(h("div", { class: "where" },
+    h("h2", {}, `${it.key} · line ${it.lines.join("–")}`),
+    h("span", { class: "muted small" }, `chunk ${it.idx + 1} of ${n}`),
+    it.same ? h("span", { class: "agree same" }, "engines agree")
+      : it.agree != null ? h("span", { class: "agree" + (it.agree < AGREE_WARN ? " low" : "") }, `agreement ${it.agree.toFixed(2)}`) : null,
+    h("a", { href: `/#${it.key}`, onclick: (e) => { e.preventDefault(); finish(); } }, "open in editor")));
+
+  // lead-up context: previous chunks, JP + chosen English
+  const lead = h("div", { class: "lead" });
+  const from = Math.max(0, it.idx - LEAD);
+  if (it.idx === 0) lead.append(h("div", { class: "empty-lead" }, "Start of conversation"));
+  else if (from > 0) lead.append(h("div", { class: "empty-lead" }, `… ${from} earlier`));
+  for (let j = from; j < it.idx; j++) {
+    const c = conv.chunks[j];
+    const en = c.mt || "";
+    lead.append(h("div", { class: "ctx" + (c.decided ? " decided" : "") },
+      h("span", { class: "no" }, c.lines[0]), h("span", { class: "j" }, chunkJp(it.key, c)),
+      h("span", { class: "e" + (en ? "" : " pending") }, en || "(no translation yet)")));
+  }
+  stage.append(lead);
+
+  const [s0] = parseTiming(entry[1][chunk.lines[0]]);
+  const last = parseTiming(entry[1][chunk.lines.at(-1)]);
+  stage.append(h("div", { class: "now" },
+    h("div", { class: "jp", lang: "ja", html: chunk.lines.map((k) => jpnHtml(entry[0][k] || "")).join("\n") }),
+    h("div", { class: "meta" }, `timing ${s0}–${last[0] + last[1]} · ${last[0] + last[1] - s0} units`)));
+
+  const nxt = conv.chunks[it.idx + 1];
+  if (nxt) stage.append(h("div", { class: "next" }, h("b", {}, "next"), chunkJp(it.key, nxt)));
+
+  const choice = (letter, eng, text) => h("button", { class: "choice" + (chunk.mt === text ? " current" : ""), id: "choice-" + letter, onclick: () => decide(eng, text) },
+    h("div", { class: "head" }, h("kbd", {}, letter.toUpperCase()), h("span", { class: "eng" }, eng)),
+    h("div", { class: "txt" }, text),
+    h("div", { class: "len" }, `${text.length} chars`));
+  stage.append(h("div", { class: "choices" }, choice("a", PRIMARY, it.a), choice("b", ALT, it.b)));
+
+  // dub reference from LaBSE line alignment
+  const al = D.alignments?.[it.key]?.[conv.usa_ref];
+  const usa = conv.usa_ref && D.usa[conv.usa_ref];
+  if (al && usa) {
+    const best = new Map();
+    for (const k of chunk.lines) for (const [ul, sim] of (al[k] || []).slice(0, 1)) if (!best.has(ul) || best.get(ul) < sim) best.set(ul, sim);
+    const rows = [...best].sort((x, y) => x[0].localeCompare(y[0]));
+    const weak = rows.every(([, sim]) => sim < 0.45);
+    stage.append(h("div", { class: "dub" + (weak ? " weak" : "") },
+      h("span", { class: "label" }, `US dub ${conv.usa_ref}` + (weak ? " · weak alignment, may be a different line" : "")),
+      rows.map(([ul, sim]) => h("div", {}, (usa[0][ul] || "").replace(/\r\n?|｜/g, " "), h("span", { class: "sim" }, `${ul} · ${sim.toFixed(2)}`)))));
+  }
+
+  const editBox = h("div", { class: "edit", hidden: true },
+    h("textarea", { id: "editText", spellcheck: "true" }),
+    h("div", { class: "actions" },
+      h("button", { class: "primary", onclick: () => { const t = $("#editText").value.trim(); if (t) decide("edit", t); } }, "Save my version", h("kbd", {}, "⌘↵")),
+      h("button", { onclick: () => { editBox.hidden = true; editing = false; } }, "Cancel", h("kbd", {}, "esc"))));
+  stage.append(h("div", { class: "actions" },
+    h("button", { onclick: openEdit }, "Write my own", h("kbd", {}, "E")),
+    h("button", { onclick: skip }, "Skip for now", h("kbd", {}, "S")),
+    h("button", { onclick: back, disabled: !history_.length }, "Undo last", h("kbd", {}, "⌫")),
+    h("span", { class: "spacer" }),
+    h("span", { class: "muted small" }, sessionDone ? `${sessionDone} decided this session` : "")),
+    editBox);
+
+  function openEdit() {
+    editBox.hidden = false; editing = true;
+    const ta = $("#editText"); ta.value = chunk.mt || it.a; ta.focus(); ta.select();
+  }
+  render.openEdit = openEdit;
+}
+
+async function decide(choice, text) {
+  const it = queue[pos];
+  $("#choice-a")?.classList.toggle("picked", choice === PRIMARY);
+  $("#choice-b")?.classList.toggle("picked", choice === ALT);
+  try {
+    const r = await api("/api/decide", { key: it.key, lines: it.lines, choice, text });
+    D.state.convs[it.key].chunks[it.idx] = r.chunk;
+    history_.push({ it, prev: r.prev, pos });
+    queue.splice(pos, 1); sessionDone++;
+    const done = +$("#counts").textContent.split(" ")[0] + 1;
+    const total = +$("#counts").textContent.split(" ")[2];
+    $("#counts").textContent = `${done} of ${total} decided · ${queue.length} left`;
+    $("#meter").style.width = `${(done / total) * 100}%`;
+    setTimeout(render, 120);
+  } catch (e) { toast("Not saved: " + e.message, true, 7000); render(); }
+}
+function skip() {
+  const [it] = queue.splice(pos, 1);
+  skipped.add(id(it)); queue.push(it); render();
+}
+async function back() {
+  const last = history_.pop();
+  if (!last) return;
+  try {
+    const r = await api("/api/decide", { key: last.it.key, lines: last.it.lines, restore: last.prev });
+    D.state.convs[last.it.key].chunks[last.it.idx] = r.chunk;
+    queue.splice(last.pos, 0, last.it); pos = last.pos; sessionDone--;
+    const done = +$("#counts").textContent.split(" ")[0] - 1;
+    const total = +$("#counts").textContent.split(" ")[2];
+    $("#counts").textContent = `${done} of ${total} decided · ${queue.length} left`;
+    $("#meter").style.width = `${(done / total) * 100}%`;
+    render();
+  } catch (e) { toast("Undo failed: " + e.message, true, 7000); history_.push(last); }
+}
+function finish() {
+  // every decision is saved the moment it's made; just remember where we were and leave
+  const it = queue[pos];
+  try { localStorage.setItem("vox-review-last", it ? id(it) : ""); } catch {}
+  location.href = "/" + (it ? "#" + it.key : history_.length ? "#" + history_.at(-1).it.key : "");
+}
+
+async function load() {
+  D = await api("/api/data");
+  JPN = D.jpn; PRIMARY = D.primary;
+  ALT = D.engines.map((e) => e.name).find((n) => n !== PRIMARY);
+  if (!ALT) { $("#stage").append(h("div", { class: "done-card" }, h("h2", {}, "Only one engine configured"), h("p", {}, "A/B review needs two engines in vox_editor/config.json."))); return; }
+  buildQueue();
+  // resume at the item in the URL / last session if it's still pending
+  const want = decodeURIComponent(location.hash.slice(1)) || (() => { try { return localStorage.getItem("vox-review-last"); } catch { return ""; } })();
+  const i = queue.findIndex((q) => id(q) === want);
+  if (i > 0 && $("#order").value === "game") { pos = i; render(); }
+}
+
+document.addEventListener("keydown", (ev) => {
+  if (editing) {
+    if (ev.key === "Escape") { ev.preventDefault(); render(); }
+    else if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); const t = $("#editText").value.trim(); if (t) decide("edit", t); }
+    return;
+  }
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName) || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+  const it = queue[pos];
+  const k = ev.key.toLowerCase();
+  if (k === "a" && it) decide(PRIMARY, it.a);
+  else if (k === "b" && it) decide(ALT, it.b);
+  else if (k === "e" && it) { ev.preventDefault(); render.openEdit?.(); }
+  else if (k === "s" && it) skip();
+  else if (ev.key === "Backspace" || ev.key === "ArrowLeft") { ev.preventDefault(); back(); }
+  else if (ev.key === "Escape") finish();
+  else return;
+});
+["#order", "#skipSame", "#minLines"].forEach((s) => $(s).addEventListener("change", buildQueue));
+$("#reloadBtn").onclick = async () => { const n = queue.length; await load(); toast(`Queue reloaded: ${queue.length} lines left (was ${n})`); };
+$("#finishBtn").onclick = finish;
+load().catch((e) => toast("Failed to load: " + e.message, true, 60000));
+</script>
+</body>
+</html>

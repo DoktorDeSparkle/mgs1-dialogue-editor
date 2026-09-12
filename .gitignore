@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+.DS_Store
+*.log
+*.lock
+*.tmp
+batch_translate_errors.json

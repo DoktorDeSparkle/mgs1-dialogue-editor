@@ -1,0 +1,31 @@
+{
+  "_comment": "Copy to config.json. 'primary' engine's output becomes the draft subtitles; other engines are kept as alternates. provider: openai (any OpenAI-compatible URL, e.g. LM Studio) | anthropic | deepl | libretranslate | mock. Per engine: system_prompt, context_lines (trim context to N lines around the current one), use_reference (send matched USA script; default true), temperature, extra (merged into the request body). VOX_TRANSLATE_* env vars override the primary engine.",
+  "primary": "sugoi-14b-ultra",
+  "engines": {
+    "sugoi-14b-ultra": {
+      "provider": "openai",
+      "url": "http://127.0.0.1:1234/v1/chat/completions",
+      "model": "sugoi-14b-ultra",
+      "temperature": 0.1,
+      "extra": {
+        "top_p": 0.95,
+        "top_k": 40,
+        "min_p": 0.05,
+        "repeat_penalty": 1.1
+      },
+      "system_prompt": "You are a professional localizer whose primary goal is to translate Japanese to English. You should use colloquial or slang or nsfw vocabulary if it makes the translation more accurate. Always respond in English.",
+      "context_lines": 5,
+      "use_reference": false
+    },
+    "gemma-4-26b-a4b": {
+      "provider": "openai",
+      "url": "http://127.0.0.1:1234/v1/chat/completions",
+      "model": "google/gemma-4-26b-a4b",
+      "temperature": 0.3,
+      "extra": {
+        "reasoning_effort": "none"
+      },
+      "use_reference": false
+    }
+  }
+}
