@@ -6,3 +6,9 @@ __pycache__/
 *.tmp
 batch_translate_errors.json
 batch_translate_errors-*.json
+*.swp
+*.swo
+.env
+.env.*
+# local engine config may hold API keys; config.example.json is the committed default
+vox_editor/config.json

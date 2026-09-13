@@ -44,7 +44,10 @@ def load_config():
     config.json either holds one engine at top level (legacy) or
     {"primary": "...", "engines": {...}}. The primary engine's output becomes the
     draft subtitles; the others are kept alongside as alternates."""
-    cfg = load_json(Path(__file__).parent / "config.json", {}) or {}
+    here = Path(__file__).parent
+    # config.json is gitignored (it's where API keys would go); fall back to the committed LM Studio example
+    cfg = load_json(here / "config.json") or load_json(here / "config.example.json", {}) or {}
+    cfg.pop("_comment", None)
     if "engines" not in cfg:
         cfg = {"primary": "default", "engines": {"default": cfg}}
     env = {
