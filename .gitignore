@@ -4,11 +4,25 @@ __pycache__/
 *.log
 *.lock
 *.tmp
-batch_translate_errors.json
-batch_translate_errors-*.json
 *.swp
 *.swo
 .env
 .env.*
+
+# --- No game data or anything derived from it -------------------------------
+# Source scripts, editor state (translations), matching outputs, exports, bake-off results.
+*.json
+!vox_editor/config.example.json
+!vox_editor/datasets.json
+data/
+state/
+exports/
+match/
+mt_bakeoff/*.html
+jpn_to_usa_table.md
+
 # local engine config may hold API keys; config.example.json is the committed default
 vox_editor/config.json
+
+# local loader for notes/CLAUDE.md (Claude Code reads CLAUDE.md from the project root)
+/CLAUDE.md

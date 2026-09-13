@@ -10,9 +10,12 @@ subtitles) for both discs. All of them use the same format:
 ```json
 "vox-0007": [
   { "01": "<line 1 text>", "02": "<line 2 text>" },   // subtitle text per line
-  { "01": "0,50",                "02": "57,88" }  // "start,duration" per line
+  { "01": "0,50",          "02": "57,88" }          // "start,duration" per line
 ]
 ```
+
+**No game data is included in this repository.** Supply your own extracted text files
+(see [Data files](#data-files)).
 
 ## Setup
 
@@ -25,6 +28,20 @@ python3 -m venv .venv
 
 The editor server and batch translator use only the standard library. The venv is needed
 for the LaBSE matching and agreement-scoring scripts.
+
+### Data files
+
+Copy your own extracted script JSONs into place (they are gitignored):
+
+| Dataset | JPN | USA |
+|---|---|---|
+| `vox` | `voxText-jpn.json` | `voxText-usa.json` |
+| `demo-d1` / `demo-d2` | `data/demo-d{1,2}/demoText-jpn.json` | `data/demo-d{1,2}/demoText-usa.json` |
+| `zmovie-d1` / `zmovie-d2` | `data/zmovie-d{1,2}/zMovie-jpn.json` | `data/zmovie-d{1,2}/zMovie-usa.json` |
+
+Paths are defined in `vox_editor/datasets.json`. All matching outputs, editor state and
+exports are generated locally and also gitignored. Run the matching step (below) before
+opening the editor.
 
 ### Translation engines
 
@@ -58,7 +75,7 @@ copy `config.example.json` to `config.json` and edit it. Put API keys either in
 | `VOX_TRANSLATE_API_KEY` | API key |
 
 The engine choice came from a 49-line bake-off of Sugoi v4, Sugoi-14B-Ultra, Qwen 3.8 27B
-and Gemma 4 against the US dub. See `mt_bakeoff/mt-bakeoff.html`.
+and Gemma 4 against the US dub (`mt_bakeoff/bakeoff.py`; summary in `notes/CLAUDE.md`).
 
 ## Workflow
 
@@ -125,17 +142,18 @@ Demo and zMovie IDs already correspond, but the same candidates and alignments a
 
 | Path | What |
 |---|---|
-| `voxText-{jpn,usa}.json` | Vox source text (disc 1) |
-| `data/<dataset>/` | Demo/zMovie source snapshots copied from `mgs1-undub/workingFiles/` |
+| `voxText-{jpn,usa}.json` | Vox source text, disc 1 (not included; you supply it) |
+| `data/<dataset>/` | Demo/zMovie source text (not included; you supply it) |
 | `vox_editor/datasets.json` | Dataset definitions: source files, state, export name, line break |
-| `vox_editor_state.json`, `state/` | Editor state: chunks, translations from both engines, decisions, subtitles |
-| `match/`, `jpn_to_usa_candidates.json`, `line_alignments.json`, `vox_*.json` | Matching outputs |
+| `vox_editor_state.json`, `state/` | Editor state: chunks, translations from both engines, decisions, subtitles (generated) |
+| `match/`, `jpn_to_usa_candidates.json`, `line_alignments.json`, `vox_*.json` | Matching outputs (generated) |
 | `vox_editor/server.py` | Local web server (stdlib), translation proxy, export |
 | `vox_editor/batch_translate.py` | Batch translation and agreement scoring |
 | `vox_editor/subtitles.py` | Markup cleanup, subtitle wrapping/splitting, timing (mirrors `static/app.js`) |
 | `vox_editor/static/` | Editor (`index.html`, `app.js`) and A/B review (`review.html`) |
 | `exports/` | Exported undub JSON |
-| `mt_bakeoff/` | Translation model comparison |
+| `mt_bakeoff/` | Translation model comparison script (results stay local) |
+| `notes/` | Development notes (`notes/CLAUDE.md`: method details, decisions, open threads) |
 
 ## Game markup
 
@@ -147,7 +165,7 @@ Demo and zMovie IDs already correspond, but the same candidates and alignments a
 
 ## Notes
 
-- The repo contains the game's script text (Japanese and US English) and derived
-  translations. Keep the remote private.
+- The repository contains tooling only. Game script text, translations of it, and anything
+  generated from it stay local (see `.gitignore`).
 - Subtitle row width is 40 characters, from the US data (p95 = 39).
 - Timing units are the game's own: `"start,duration"`.
