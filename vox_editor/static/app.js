@@ -18,11 +18,15 @@ let conv = null;              // STATE.convs[cur] (possibly unsaved new)
 let focusIdx = 0;             // focused chunk index
 let selLines = [];            // selected line keys (in order)
 let selAnchor = null;
+let shiftHeld = false;        // fallback for clicks whose event lacks shiftKey
+let ctxAt = -Infinity;        // last macOS Ctrl-click (contextmenu) toggle, so a following click doesn't undo it
 let undoStack = [], redoStack = [];
-const pending = new Set();    // chunk objects being translated
+let subTarget = null;         // subtitle object that → on a USA line replaces (last subtitle clicked into)
+const pending = new Map();    // chunk object being translated -> {engine: "wait" | "ok" | "fail"}
 let translateAllRun = null;   // {stop: bool}
 
 const $ = (s) => document.querySelector(s);
+const IS_MAC = /Mac/.test(navigator.platform);
 const DS = new URLSearchParams(location.search).get("ds") || "vox"; // dataset from vox_editor/datasets.json
 
 function h(tag, attrs = {}, ...kids) {
@@ -75,7 +79,8 @@ function jpnPlain(raw) {
   });
   return s.replace(/[#＃｛｝]/g, "").replace(/[｜\r\n]/g, " ").trim();
 }
-const usaText = (raw) => raw.replace(/\r\n?|｜/g, "\n").replace(/[ \t]+\n/g, "\n").trim();
+// US script line breaks are \r (sometimes followed by tab indentation, e.g. vox-0078) or ｜
+const usaText = (raw) => raw.replace(/\r\n?|｜/g, "\n").replace(/[ \t]*\n[ \t]*/g, "\n").replace(/\t/g, " ").trim();
 
 const parseTiming = (s) => { const [a, b] = String(s || "0,0").split(",").map(Number); return [a || 0, b || 0]; };
 const lineKeysOf = (entry) => Object.keys(entry?.[0] || {}).sort();
@@ -257,14 +262,30 @@ function openConv(jk) {
 function allLineKeys() { return conv.chunks.flatMap((c) => c.lines); }
 const chunkOfLine = (k) => conv.chunks.findIndex((c) => c.lines.includes(k));
 
-function clickLine(k, ev) {
-  const order = allLineKeys();
-  if (ev.shiftKey && selAnchor) {
-    const [a, b] = [order.indexOf(selAnchor), order.indexOf(k)].sort((x, y) => x - y);
-    selLines = order.slice(a, b + 1);
-  } else { selLines = [k]; selAnchor = k; }
-  setFocus(chunkOfLine(k));
+// click = select one line, Shift-click = range from the anchor, ⌘/Ctrl-click = toggle one line
+// keys: one line key, or a whole chunk's lines (click on the chunk box outside a line)
+function clickLine(keys, ev) {
+  keys = [].concat(keys);
+  const order = allLineKeys(), idx = keys.map((k) => order.indexOf(k));
+  if ((ev.shiftKey || shiftHeld) && order.includes(selAnchor)) {
+    const at = order.indexOf(selAnchor);
+    selLines = order.slice(Math.min(at, ...idx), Math.max(at, ...idx) + 1);
+  } else if (ev.metaKey || ev.ctrlKey) {
+    const all = keys.every((k) => selLines.includes(k));
+    selLines = all ? selLines.filter((x) => !keys.includes(x)) : order.filter((x) => keys.includes(x) || selLines.includes(x));
+    selAnchor = keys[0];
+  } else { selLines = keys; selAnchor = keys[0]; }
+  setFocus(chunkOfLine(keys[0]));
+  renderSel();
+}
+function clearSel() { selLines = []; selAnchor = null; renderSel(); }
+function renderSel() {
   document.querySelectorAll(".jline").forEach((el) => el.classList.toggle("selected", selLines.includes(el.dataset.line)));
+  const spans = new Set(selLines.map(chunkOfLine)).size;
+  $("#selInfo").hidden = !selLines.length;
+  $("#selInfo").textContent = `${selLines.length} selected` + (spans > 1 ? " · G" : "");
+  $("#selInfo").title = (spans > 1 ? "G / Group joins these into one chunk" : "Shift-click a range or ⌘/Ctrl-click lines to add") + " · Esc clears";
+  $("#groupBtn").classList.toggle("primary", spans > 1);
 }
 
 function setFocus(i, scroll = false) {
@@ -276,38 +297,37 @@ function setFocus(i, scroll = false) {
 }
 
 function groupSelection() {
-  if (selLines.length < 2) { toast("Shift-click to select a range of lines first"); return; }
+  if (selLines.length < 2) { toast("Select lines first: click one, then Shift-click (range) or ⌘/Ctrl-click (add). Or use “join ↓” on a chunk."); return; }
   const idx = selLines.map(chunkOfLine);
   const a = Math.min(...idx), b = Math.max(...idx);
   if (a === b) { toast("Those lines are already one chunk"); return; }
   mergeChunks(a, b);
 }
-// per-engine alternates of merged chunks are concatenated (only engines every part has)
-function mergeMts(parts) {
-  const engines = D.engines.map((e) => e.name).filter((n) => parts.every((c) => c.mts?.[n]));
-  return Object.fromEntries(engines.map((n) => [n, parts.map((c) => c.mts[n]).join(" ")]));
-}
+// Regrouping changes what the engines see, so merged/split chunks start with no MT (mts, mt_agree, decided
+// dropped) and get re-translated. Old subtitles stay until the new MT replaces them; edited ones are kept.
 function mergeChunks(a, b) {
+  let merged;
   mutate(() => {
     const parts = conv.chunks.slice(a, b + 1);
-    const merged = {
+    merged = {
       lines: parts.flatMap((c) => c.lines),
-      mt: parts.map((c) => c.mt).filter(Boolean).join(" "),
-      mts: mergeMts(parts),
+      mt: "",
       subs: parts.flatMap((c) => c.subs),
       timingEdited: parts.some((c) => c.timingEdited),
       subsEdited: parts.some((c) => c.subsEdited),
     };
     conv.chunks.splice(a, b - a + 1, merged);
-    focusIdx = a; selLines = [];
+    focusIdx = a; selLines = []; selAnchor = null;
   });
+  retranslate([merged], merged.subsEdited || merged.timingEdited);
 }
 function ungroup(i = focusIdx) {
   const c = conv.chunks[i];
   if (!c || c.lines.length < 2) { toast("Focused chunk is a single line"); return; }
+  let parts;
   mutate(() => {
     const tm = D.jpn[cur][1];
-    const parts = c.lines.map((k, j) => ({ lines: [k], mt: j === 0 ? c.mt : "", mts: j === 0 ? c.mts : undefined, subs: [], timingEdited: c.timingEdited, subsEdited: c.subsEdited }));
+    parts = c.lines.map((k) => ({ lines: [k], mt: "", subs: [], timingEdited: c.timingEdited, subsEdited: c.subsEdited }));
     // give each subtitle to the line whose window contains its start (else the last line that started before it)
     for (const s of c.subs) {
       let target = 0;
@@ -316,9 +336,19 @@ function ungroup(i = focusIdx) {
     }
     conv.chunks.splice(i, 1, ...parts);
   });
+  retranslate(parts, c.subsEdited || c.timingEdited);
+}
+// one chunk at a time (keeps LM Studio load down); no undo steps, so one undo reverts the regroup
+async function retranslate(chunks, keepSubs) {
+  const key = cur;
+  for (const c of chunks) {
+    const i = conv.chunks.indexOf(c);
+    if (cur !== key || i < 0) break;
+    try { await translateChunk(i, { undo: false, keepSubs }); } catch { break; }
+  }
 }
 
-async function translateChunk(i) {
+async function translateChunk(i, { undo = true, keepSubs = false } = {}) {
   const chunk = conv.chunks[i];
   if (!chunk || pending.has(chunk)) return;
   const key = cur, owner = conv, entry = D.jpn[key];
@@ -326,20 +356,23 @@ async function translateChunk(i) {
   if (!text) return;
   const context = conv.chunks.map((c) => (c === chunk ? "▶ " : "  ") + c.lines.map((k) => jpnPlain(entry[0][k])).join("")).join("\n");
   const ref = conv.usa_ref && D.usa[conv.usa_ref] ? lineKeysOf(D.usa[conv.usa_ref]).map((k) => usaText(D.usa[conv.usa_ref][0][k]).replace(/\n/g, " ")).join("\n") : "";
-  pending.add(chunk); renderEditor();
+  const st = Object.fromEntries(D.engines.map((e) => [e.name, "wait"]));
+  pending.set(chunk, st); renderEditor(); updatePending(chunk);
   try {
     // every configured engine runs in parallel; the primary's output drives mt + subtitles
-    const results = await Promise.allSettled(D.engines.map((e) => api("/api/translate", { text, context, reference: ref, engine: e.name })));
+    const results = await Promise.allSettled(D.engines.map((e) => api("/api/translate", { text, context, reference: ref, engine: e.name })
+      .then((r) => { st[e.name] = "ok"; updatePending(chunk); return r; }, (err) => { st[e.name] = "fail"; updatePending(chunk); throw err; })));
     const failed = results.filter((r) => r.status === "rejected");
     if (failed.length === results.length) throw failed[0].reason;
     if (failed.length) toast(`${failed.length} engine(s) failed: ${failed[0].reason.message}`, true, 7000);
-    if (key === cur) pushUndo();
+    if (!(key === cur ? conv : owner).chunks.includes(chunk)) return; // undone/regrouped meanwhile
+    if (key === cur && undo) pushUndo();
     chunk.mts = { ...(chunk.mts || {}) };
     results.forEach((r) => { if (r.status === "fulfilled") chunk.mts[r.value.engine] = r.value.text; });
     delete chunk.mt_agree;
     const best = chunk.mts[D.primary] ?? Object.values(chunk.mts)[0];
     chunk.mt = best;
-    if (!chunk.subs.length || !chunk.subsEdited) autoSubs(chunk, best, key);
+    if (!keepSubs && (!chunk.subs.length || !(chunk.subsEdited || chunk.timingEdited))) autoSubs(chunk, best, key);
     if (key !== cur) { // user navigated away; apply to stored conv directly
       if (owner.status === "todo" || owner.status === "mt") owner.status = "wip";
       STATE.convs[key] = owner; save(key, owner);
@@ -350,9 +383,24 @@ async function translateChunk(i) {
     toast(`Translate failed: ${e.message}`, true, 7000);
     throw e;
   } finally {
-    pending.delete(chunk);
+    pending.delete(chunk); updatePending(chunk);
     if (key === cur) { renderEditor(); highlightRef(false); }
   }
+}
+
+// blinking "translating" light per chunk (with per-engine progress) and in the top bar
+function pendingBar(chunk) {
+  const st = pending.get(chunk) || {};
+  return h("div", { class: "pending-bar" }, h("span", { class: "blink" }), "Translating…",
+    Object.entries(st).map(([name, s]) => h("span", { class: `eng-st ${s}` }, `${shortEngine(name)} ${s === "ok" ? "✓" : s === "fail" ? "✕" : "…"}`)));
+}
+function updatePending(chunk) {
+  const n = pending.size;
+  $("#mtBusy").hidden = !n;
+  $("#mtBusy").lastElementChild.textContent = `Translating ${n} chunk${n === 1 ? "" : "s"}`;
+  const i = conv?.chunks.indexOf(chunk) ?? -1;
+  const bar = i >= 0 && document.querySelectorAll(".chunk")[i]?.querySelector(".pending-bar");
+  if (bar && pending.has(chunk)) bar.replaceWith(pendingBar(chunk));
 }
 
 async function translateAll() {
@@ -383,10 +431,8 @@ function renderEditor() {
 
   box.replaceChildren();
   if (!conv.chunks.length) { box.append(h("div", { class: "placeholder" }, "Empty conversation.")); return; }
-  conv.chunks.forEach((chunk, i) => {
-    if (i > 0) box.append(h("div", { class: "merge-gap" }, h("button", { class: "tiny", title: "Merge with chunk above", onclick: () => mergeChunks(i - 1, i) }, "⇅ merge")));
-    box.append(renderChunk(chunk, i, entry));
-  });
+  conv.chunks.forEach((chunk, i) => box.append(renderChunk(chunk, i, entry)));
+  renderSel();
 }
 
 function renderChunk(chunk, i, entry) {
@@ -394,39 +440,34 @@ function renderChunk(chunk, i, entry) {
   const src = h("div", { class: "src" },
     chunk.lines.map((k) => {
       const [s, d] = parseTiming(entry[1][k]);
-      return h("div", { class: "jline" + (selLines.includes(k) ? " selected" : ""), "data-line": k, title: entry[0][k], onclick: (ev) => clickLine(k, ev) },
+      return h("div", { class: "jline" + (selLines.includes(k) ? " selected" : ""), "data-line": k, title: entry[0][k] },
         h("span", { class: "no" }, k), h("span", { class: "jt", html: jpnHtml(entry[0][k]) || "<span class=muted>(empty)</span>" }),
         h("span", { class: "tm" }, `${s} +${d}`));
     }),
     h("div", { class: "chunk-tools" },
       h("span", { class: "muted small" }, `${spanS}–${spanE}`), h("span", { class: "spacer" }),
-      chunk.lines.length > 1 && h("button", { class: "tiny", onclick: () => ungroup(i) }, "ungroup"),
+      chunk.lines.length > 1 && h("button", { class: "tiny", title: "Split back into single lines and re-translate each (U)", onclick: () => ungroup(i) }, "ungroup"),
+      i < conv.chunks.length - 1 && h("button", { class: "tiny join", title: "Group with the next chunk and re-translate", onclick: () => mergeChunks(i, i + 1) }, "join ↓"),
       h("button", { class: "tiny", onclick: () => { setFocus(i); translateChunk(i).catch(() => {}); } },
         pending.has(chunk) ? h("span", { class: "spin" }, "◌") : chunk.mt ? "re-translate" : "translate")));
 
   const tgt = h("div", { class: "tgt" });
-  // machine translation (editable; "apply" re-splits into subtitles)
-  const mt = h("textarea", { rows: 1, placeholder: "machine translation…", spellcheck: "false" });
-  mt.value = chunk.mt || "";
-  let mtSnap;
-  mt.addEventListener("focus", () => { mtSnap = snapshot(); setFocus(i); });
-  mt.addEventListener("input", () => { chunk.mt = mt.value; chunk.mtEdited = true; touch(); });
-  mt.addEventListener("change", () => pushUndo(mtSnap));
-  tgt.append(h("div", { class: "mt" }, h("span", { class: "mt-label" }, "MT"), mt,
-    h("button", { class: "tiny", title: "Replace subtitles with an auto-split of this translation", disabled: !chunk.mt,
-      onclick: () => mutate(() => autoSubs(chunk, chunk.mt)) }, "→ subs")));
+  if (pending.has(chunk)) tgt.append(pendingBar(chunk));
+  // engine suggestions; "use" puts one into the subtitles, which are the only editable text
   const mts = Object.entries(chunk.mts || {});
   if (mts.length) {
     const low = chunk.mt_agree != null && chunk.mt_agree < AGREE_WARN;
+    const inSubs = norm(chunk.subs.map((s) => s.text).join(" "));
     tgt.append(h("div", { class: "alts" + (low ? " low" : "") },
       low && h("div", { class: "agree-note" }, `Engines disagree (similarity ${chunk.mt_agree.toFixed(2)}) — check the Japanese`),
       mts.map(([name, text]) => {
-        const chosen = text === chunk.mt;
+        const chosen = norm(text) === inSubs;
         return h("div", { class: "alt" + (chosen ? " chosen" : "") },
           h("span", { class: "eng", title: name }, shortEngine(name)),
           h("span", { class: "alt-text" }, text),
-          h("button", { class: "tiny", disabled: chosen, title: chunk.subsEdited ? "Use as MT (your edited subtitles stay; press → subs to replace them)" : "Use this translation and re-split subtitles",
-            onclick: () => mutate(() => { chunk.mt = text; if (!chunk.subsEdited) autoSubs(chunk, text); }) }, chosen ? "in use" : "use"));
+          h("button", { class: "tiny", title: chunk.subs.length > 1 && chunk.subs.includes(subTarget)
+              ? "Replace the text of the marked subtitle (timing kept)" : "Put into the subtitles, auto-split over the JPN timing",
+            onclick: () => useMt(chunk, name, text) }, chosen ? "in subs" : "use"));
       })));
   }
 
@@ -445,8 +486,15 @@ function renderChunk(chunk, i, entry) {
     h("button", { class: "tiny", onclick: () => mutate(() => { chunk.subs.push({ text: "", start: spanE, dur: 0 }); chunk.subsEdited = true; if (!chunk.timingEdited) redistribute(chunk); }) }, "+ subtitle"),
     chunk.subs.length > 0 && h("button", { class: "tiny", title: "Re-time subtitles proportionally to text length", onclick: () => mutate(() => { redistribute(chunk); chunk.timingEdited = false; }) }, "re-time")));
 
-  const el = h("div", { class: "chunk" + (i === focusIdx ? " focused" : "") + (chunk.lines.length > 1 ? " grouped" : "") }, src, tgt);
-  el.addEventListener("mousedown", () => { if (focusIdx !== i) setFocus(i); });
+  const el = h("div", { class: "chunk" + (i === focusIdx ? " focused" : "") + (chunk.lines.length > 1 ? " grouped" : "") + (pending.has(chunk) ? " pending" : "") }, src, tgt);
+  // a click on a line selects that line; anywhere else in the box (outside controls) selects the whole chunk
+  const target = (ev) => ev.target.closest("textarea, input, select, button") ? null : ev.target.closest(".jline")?.dataset.line ?? chunk.lines;
+  el.addEventListener("mousedown", (ev) => {
+    if (focusIdx !== i) setFocus(i);
+    if ((ev.shiftKey || ev.metaKey || ev.ctrlKey) && target(ev)) ev.preventDefault(); // no text-selection extension
+  });
+  el.addEventListener("click", (ev) => { const t = target(ev); if (t && !(IS_MAC && ev.ctrlKey && performance.now() - ctxAt < 1000)) clickLine(t, ev); });
+  el.addEventListener("contextmenu", (ev) => { const t = target(ev); if (t && ev.ctrlKey && IS_MAC) { ev.preventDefault(); ctxAt = performance.now(); clickLine(t, ev); } }); // macOS Ctrl-click fires contextmenu, usually not click
   return el;
 }
 
@@ -463,7 +511,10 @@ function renderSub(chunk, i, sub, j) {
   };
   updateCounts();
   let snap;
-  ta.addEventListener("focus", () => { snap = snapshot(); setFocus(i); });
+  ta.addEventListener("focus", () => {
+    snap = snapshot(); setFocus(i);
+    subTarget = sub; document.querySelectorAll(".sub.target").forEach((el) => el.classList.remove("target")); ta.parentElement.classList.add("target");
+  });
   ta.addEventListener("input", () => {
     sub.text = ta.value; chunk.subsEdited = true; updateCounts(); touch();
     ta.rows = Math.max(2, ta.value.split("\n").length);
@@ -489,7 +540,7 @@ function renderSub(chunk, i, sub, j) {
     return inp;
   };
   const move = (dir) => mutate(() => { const k = j + dir; if (k < 0 || k >= chunk.subs.length) return; [chunk.subs[j].text, chunk.subs[k].text] = [chunk.subs[k].text, chunk.subs[j].text]; chunk.subsEdited = true; });
-  return h("div", { class: "sub" }, ta,
+  return h("div", { class: "sub" + (sub === subTarget ? " target" : "") }, ta,
     h("div", { class: "meta" }, "@", num("start"), "+", num("dur")),
     h("div", { class: "acts" },
       h("button", { class: "tiny", title: "Swap text with previous", disabled: j === 0, onclick: () => move(-1) }, "↑"),
@@ -546,7 +597,7 @@ function renderRef() {
     const [s, d] = parseTiming(entry[1]?.[k]);
     ol.append(h("li", { "data-line": k },
       h("span", { class: "no" }, k), h("span", { class: "ut" }, usaText(entry[0][k])),
-      h("button", { class: "tiny", title: "Copy into focused chunk as a subtitle", onclick: () => copyUsaLine(k) }, "→"),
+      h("button", { class: "tiny", title: "Replace the text of the target subtitle in the focused chunk (timing kept) · ⇧-click appends a new subtitle", onclick: (ev) => copyUsaLine(k, ev.shiftKey) }, "→"),
       h("span", { class: "tm" }, `${s} +${d}`, h("span", { class: "sim" }))));
   }
   highlightRef(true);
@@ -558,12 +609,37 @@ function setRef(uk) {
   pushUndo(); conv.usa_ref = uk; touch(); renderRef();
 }
 
-function copyUsaLine(k) {
-  const chunk = conv.chunks[focusIdx]; if (!chunk) return;
+const norm = (s) => s.replace(/\s+/g, " ").trim();
+
+// "use" on an engine suggestion: with several subtitles and one marked (clicked into), replace just its text;
+// otherwise the subtitles become an auto-split of the suggestion over the chunk's JPN timing. Undoable.
+function useMt(chunk, name, text) {
   mutate(() => {
-    chunk.subs.push({ text: usaText(D.usa[conv.usa_ref][0][k]), start: 0, dur: 0 });
+    chunk.mt = text; chunk.decided = name; // decided locks the chunk against batch overwrites
+    if (chunk.subs.length > 1 && chunk.subs.includes(subTarget)) { subTarget.text = wrapRows(text); chunk.subsEdited = true; }
+    else { autoSubs(chunk, text); subTarget = chunk.subs[0]; }
+  });
+}
+
+// → on a USA line: replace the text of the target subtitle (last one clicked into) in the focused chunk, keeping its
+// timing; with no target, the chunk's subtitles become this one line over the chunk's JPN timing. ⇧-click appends instead.
+function copyUsaLine(k, append = false) {
+  const chunk = conv.chunks[focusIdx]; if (!chunk) return;
+  const text = usaText(D.usa[conv.usa_ref][0][k]);
+  const target = chunk.subs.includes(subTarget) ? subTarget : chunk.subs.length === 1 ? chunk.subs[0] : null;
+  mutate(() => {
+    if (append) {
+      chunk.subs.push({ text, start: 0, dur: 0 });
+      if (!chunk.timingEdited) redistribute(chunk);
+    } else if (target) {
+      target.text = text;
+    } else {
+      const [s, e] = chunkSpan(chunk);
+      if (chunk.subs.length > 1) toast(`Replaced ${chunk.subs.length} subtitles with one (⌘Z to undo) — click into a subtitle first to replace just that one`);
+      chunk.subs = [{ text, start: s, dur: Math.max(1, e - s) }];
+      subTarget = chunk.subs[0];
+    }
     chunk.subsEdited = true;
-    if (!chunk.timingEdited) redistribute(chunk);
   });
 }
 
@@ -622,11 +698,15 @@ function bind() {
   $("#exportBtn").onclick = async () => {
     try {
       clearTimeout(saveTimer); if (conv) await save(cur, conv);
-      const r = await api("/api/export", { filename: $("#exportName").value, line_break: $("#lineBreak").value === "\\r" ? "\r" : "｜" });
+      const r = await api("/api/export", { filename: $("#exportName").value, line_break: $("#lineBreak").value === "\\r" ? "\r" : "｜", scope: $("#exportScope").value });
       toast(`Exported ${r.edited} edited conversations → ${r.path}`);
     } catch (e) { toast("Export failed: " + e.message, true, 7000); }
   };
+  const trackShift = (ev) => (shiftHeld = ev.shiftKey);
+  document.addEventListener("keyup", trackShift);
+  window.addEventListener("blur", () => (shiftHeld = false));
   document.addEventListener("keydown", (ev) => {
+    trackShift(ev);
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName);
     if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === "z" && !typing) { ev.preventDefault(); ev.shiftKey ? redo() : undo(); return; }
     if (typing || ev.metaKey || ev.ctrlKey || ev.altKey || !conv) return;
@@ -634,6 +714,7 @@ function bind() {
     if (k === "g") groupSelection();
     else if (k === "u") ungroup();
     else if (k === "t") translateChunk(focusIdx).catch(() => {});
+    else if (ev.key === "Escape") clearSel();
     else if (k === "[") navigate(-1);
     else if (k === "]") navigate(1);
     else if (k === "j" || ev.key === "ArrowDown") { ev.preventDefault(); setFocus(focusIdx + 1, true); }

@@ -1,5 +1,5 @@
 {
-  "_comment": "Paths are relative to the project root. 'source' records where the snapshot in data/ came from (mgs1-undub workingFiles). same_id: JPN and USA keys correspond 1:1, so the USA reference defaults to the same key. line_break: what a newline inside a subtitle becomes on export (vox USA data mostly uses \\r, demo/zMovie use ｜).",
+  "_comment": "Paths are relative to the project root. 'source' records where the snapshot in data/ came from (mgs1-undub workingFiles). same_id: JPN and USA keys correspond 1:1, so the USA reference defaults to the same key. line_break: what a newline inside a subtitle becomes on export (｜ for all (the JPN game files and the finished undub files use ｜)).",
   "vox": {
     "label": "Vox (disc 1)",
     "jpn": "voxText-jpn.json",
@@ -12,7 +12,7 @@
     "hungarian": "vox_matches_min2.json",
     "same_id": false,
     "source": "mgs1-undub/workingFiles/{jpn,usa}-d1/vox/voxText-*.json",
-    "line_break": "\r"
+    "line_break": "｜"
   },
   "demo-d1": {
     "label": "Demo (disc 1)",

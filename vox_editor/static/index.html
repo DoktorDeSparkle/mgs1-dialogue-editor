@@ -14,11 +14,17 @@
   <div id="progress" class="muted"></div>
   <a id="reviewLink" class="pill" href="review.html" title="Step through lines one at a time and pick Sugoi (A) or Gemma (B)">A/B review →</a>
   <div class="spacer"></div>
+  <span id="mtBusy" class="pill" hidden><span class="blink"></span> <span></span></span>
   <span id="saveState" class="muted"></span>
-  <label class="muted" title="What a newline inside a subtitle becomes on export. Defaults per dataset: vox USA data mostly uses \r, demo/zMovie use ｜.">
+  <label class="muted" title="What a newline inside a subtitle becomes on export. Default ｜ (what the JPN game files and your finished undub files use).">
     line break
     <select id="lineBreak"><option value="\r">\r</option><option value="｜">｜</option></select>
   </label>
+  <select id="exportScope" title="Which conversations get English on export; everything else keeps its original JPN entry">
+    <option value="reviewed">Done + In progress</option>
+    <option value="done">Done only</option>
+    <option value="all">All with subtitles (incl. MT drafts)</option>
+  </select>
   <input id="exportName" size="20" spellcheck="false">
   <button id="exportBtn" class="primary">Export JSON</button>
   <button id="helpBtn" title="Keyboard shortcuts">?</button>
@@ -70,9 +76,10 @@
         <div id="jpnMeta" class="muted small"></div>
       </div>
       <div class="spacer"></div>
+      <span id="selInfo" class="pill" hidden></span>
       <div class="btn-group">
-        <button id="groupBtn" title="Group selected lines into one chunk (G)">Group</button>
-        <button id="ungroupBtn" title="Split focused chunk back into lines (U)">Ungroup</button>
+        <button id="groupBtn" title="Group selected lines into one chunk and re-translate it (G)">Group</button>
+        <button id="ungroupBtn" title="Split focused chunk back into lines and re-translate them (U)">Ungroup</button>
         <button id="translateAllBtn" title="Machine-translate every chunk that has no translation">Translate all</button>
         <button id="undoBtn" title="Undo (⌘Z)">↶</button>
         <button id="redoBtn" title="Redo (⇧⌘Z)">↷</button>
@@ -106,13 +113,14 @@
 <dialog id="help">
   <h3>Shortcuts &amp; workflow</h3>
   <ul>
-    <li><b>Click</b> a JPN line to select, <b>Shift-click</b> to extend, <b>G</b> to group into one chunk (one thought).</li>
-    <li><b>U</b> ungroups the focused chunk. <b>T</b> translates it with every configured engine; the primary engine's output becomes the draft, the others show underneath with a <b>use</b> button.</li>
+    <li><b>Click</b> a JPN line to select it, <b>Shift-click</b> another to select the range, <b>⌘/Ctrl-click</b> to add or remove a line, <b>Esc</b> to clear. <b>G</b> (or Group) joins every chunk the selection touches into one chunk (one thought); <b>join ↓</b> on a chunk joins it with the next one.</li>
+    <li>Grouping and <b>U</b> (ungroup) re-translate the new chunks with every engine, since the MT of the separate lines no longer fits. Subtitles you edited or re-timed are kept as they are (only the suggestions are refreshed; press <b>use</b> to replace them). One <b>⌘Z</b> restores the chunks as they were before.</li>
+    <li><b>T</b> translates the focused chunk with every configured engine; each engine's suggestion shows with a <b>use</b> button that puts it into the subtitle box (auto-split over the JPN timing, or into the marked subtitle when the chunk has several), where you edit it. "in subs" marks the suggestion the subtitles currently match.</li>
     <li>Sort by <b>MT engines disagree most</b> to review first the lines where the models read the Japanese differently (≠ badge in the list).</li>
     <li>Subtitle boxes: <b>Enter</b> = line break inside the subtitle, <b>⌘Enter</b> = split at cursor into a new subtitle.</li>
     <li><b>⌘Z / ⇧⌘Z</b> undo/redo (structural edits and text commits).</li>
     <li><b>[ / ]</b> previous / next conversation in the current list.</li>
-    <li>Focusing a chunk highlights the USA lines LaBSE aligns it with; <b>→</b> on a USA line copies it into the focused chunk as a subtitle.</li>
+    <li>Focusing a chunk highlights the USA lines LaBSE aligns it with. <b>→</b> on a USA line replaces the text of the target subtitle (the last one you clicked into, marked with a blue bar) and keeps its timing; if the chunk has no target, its subtitles become that one line over the JPN timing. <b>⇧→</b> appends it as a new subtitle instead.</li>
     <li>Edits autosave to <code>vox_editor_state.json</code>. Export writes the same [text, timing] JSON format into <code>exports/</code>; untouched conversations and un-subtitled chunks keep their original JPN text.</li>
   </ul>
   <form method="dialog"><button>Close</button></form>

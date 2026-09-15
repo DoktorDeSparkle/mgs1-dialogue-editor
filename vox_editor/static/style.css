@@ -65,7 +65,10 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 .src { padding: 6px 8px; border-right: 1px solid var(--line); }
 .jline { display: grid; grid-template-columns: 22px 1fr; gap: 6px; padding: 3px 4px; border-radius: 4px; cursor: pointer; user-select: none; }
 .jline:hover { background: var(--panel2); }
-.jline.selected { background: var(--sel); }
+.jline.selected { background: rgba(106, 167, 255, .3); box-shadow: inset 3px 0 0 var(--accent), 0 0 0 1px var(--accent); }
+.jline.selected .no { color: var(--accent); font-weight: 700; }
+#selInfo { color: var(--accent); border-color: var(--accent); white-space: nowrap; }
+.chunk-tools .join { border-color: var(--accent-dim); color: var(--accent); }
 .jline .no { font-family: var(--mono); font-size: 10px; color: var(--muted); padding-top: 2px; }
 .jline .jt { font-family: var(--jp); font-size: 14px; white-space: pre-wrap; }
 .jline .jt ruby rt { font-size: 9px; color: var(--muted); }
@@ -73,9 +76,6 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 .chunk-tools { display: flex; gap: 4px; padding: 4px 4px 0; align-items: center; }
 
 .tgt { padding: 6px 8px; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.mt { display: flex; gap: 5px; align-items: flex-start; }
-.mt textarea { flex: 1; min-height: 30px; resize: vertical; font-size: 12px; color: #b9c2d3; background: #1a1d24; padding: 4px 6px; }
-.mt .mt-label { font-size: 10px; color: var(--muted); writing-mode: vertical-rl; transform: rotate(180deg); }
 .sub { display: grid; grid-template-columns: 1fr auto; gap: 3px 6px; background: var(--panel2); border-radius: 5px; padding: 5px; border: 1px solid transparent; }
 .sub:focus-within { border-color: var(--accent-dim); }
 .sub textarea { grid-row: span 2; resize: vertical; min-height: 40px; field-sizing: content; padding: 4px 6px; font-size: 12.5px; line-height: 1.35; background: #13151a; font-family: var(--mono); }
@@ -89,10 +89,14 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 .timeline span.bad { background: rgba(224, 104, 95, .5); }
 .tgt .empty { color: var(--muted); font-size: 12px; font-style: italic; }
 .tgt .row { display: flex; gap: 4px; flex-wrap: wrap; }
-.merge-gap { height: 0; position: relative; }
-.merge-gap button { position: absolute; left: 50%; transform: translate(-50%, -50%); top: -4px; z-index: 2; opacity: 0; transition: opacity .1s; }
-.merge-gap:hover button, .merge-gap button:focus { opacity: 1; }
-.merge-gap::before { content: ""; position: absolute; left: 0; right: 0; top: -12px; height: 16px; }
+.blink { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 6px var(--warn); animation: blink 1s ease-in-out infinite; }
+@keyframes blink { 50% { opacity: .2; } }
+#mtBusy { color: var(--warn); border-color: #5e4c26; white-space: nowrap; }
+.chunk.pending { border-color: #5e4c26; }
+.pending-bar { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--warn); }
+.pending-bar .eng-st { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+.pending-bar .eng-st.ok { color: var(--good); } .pending-bar .eng-st.fail { color: var(--bad); }
+.sub.target { border-color: var(--accent-dim); border-left: 3px solid var(--accent); }
 .spin { display: inline-block; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 

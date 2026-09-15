@@ -46,7 +46,7 @@ def load_config():
     draft subtitles; the others are kept alongside as alternates."""
     here = Path(__file__).parent
     # config.json is gitignored (it's where API keys would go); fall back to the committed LM Studio example
-    cfg = load_json(here / "config.json") or load_json(here / "config.example.json", {}) or {}
+    cfg = load_json(os.environ.get("VOX_EDITOR_CONFIG") or here / "config.json") or load_json(here / "config.example.json", {}) or {}
     cfg.pop("_comment", None)
     if "engines" not in cfg:
         cfg = {"primary": "default", "engines": {"default": cfg}}
@@ -213,14 +213,21 @@ def fmt_timing(start, dur):
     return f"{int(round(start))},{int(round(dur))}"
 
 
-def export(state, jpn, path, line_break):
+EXPORT_SCOPES = {"all": None, "reviewed": {"done", "wip"}, "done": {"done"}}
+
+
+def export(state, jpn, path, line_break, scope="all"):
     """Write a voxText-jpn-format file. Convs with saved edits get their English
     subtitles (renumbered 01..NN); untouched convs keep the original JPN entry.
-    Chunks with no subtitles yet fall back to their original JPN lines, so a
-    half-finished conversation never silently loses lines."""
+    scope limits which statuses count ("reviewed" = done + in progress; MT drafts
+    then keep their JPN entry). Chunks with no subtitles yet fall back to their
+    original JPN lines, so a half-finished conversation never silently loses lines."""
+    statuses = EXPORT_SCOPES[scope]
     out, edited = {}, 0
     for key, orig in jpn.items():
         conv = state.get("convs", {}).get(key)
+        if conv and statuses is not None and conv.get("status") not in statuses:
+            conv = None
         chunks = (conv or {}).get("chunks") or []
         if not any(s.get("text", "").strip() for c in chunks for s in c.get("subs", [])):
             out[key] = orig
@@ -383,7 +390,7 @@ class Handler(BaseHTTPRequestHandler):
                 with state_lock(ds):
                     state = load_state(ds)
                 EXPORT_DIR.mkdir(exist_ok=True)
-                n = export(state, load_json(ROOT / d["jpn"]), EXPORT_DIR / name, req.get("line_break") or d.get("line_break", "\r"))
+                n = export(state, load_json(ROOT / d["jpn"]), EXPORT_DIR / name, req.get("line_break") or d.get("line_break", "\r"), req.get("scope", "all"))
                 return self.send_json({"ok": True, "path": f"exports/{name}", "edited": n})
             self.send_error(404)
         except urllib.error.HTTPError as e:

@@ -247,7 +247,7 @@ function render() {
     const weak = rows.every(([, sim]) => sim < 0.45);
     stage.append(h("div", { class: "dub" + (weak ? " weak" : "") },
       h("span", { class: "label" }, `US dub ${conv.usa_ref}` + (weak ? " · weak alignment, may be a different line" : "")),
-      rows.map(([ul, sim]) => h("div", {}, (usa[0][ul] || "").replace(/\r\n?|｜/g, " "), h("span", { class: "sim" }, `${ul} · ${sim.toFixed(2)}`)))));
+      rows.map(([ul, sim]) => h("div", {}, (usa[0][ul] || "").replace(/\s*(\r\n?|｜)\s*/g, " ").replace(/\t/g, " "), h("span", { class: "sim" }, `${ul} · ${sim.toFixed(2)}`)))));
   }
 
   const editBox = h("div", { class: "edit", hidden: true },
