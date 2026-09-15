@@ -281,6 +281,30 @@ def jpn_data(ds):
     return _JPN[ds]
 
 
+_RADIO = {}
+
+
+def radio_keys(ds):
+    """Vox keys whose clip is played by a VOX_CUES in the dataset's RADIO.xml (voxCode = clip byte offset / 0x800).
+    Radio calls show 4 subtitle rows, in-game scenes 2. Empty when the dataset has no radio_xml or the file is missing."""
+    if ds not in _RADIO:
+        d, keys = dataset(ds), set()
+        xml, offsets = d.get("radio_xml"), d.get("vox_offsets")
+        if xml and offsets and (ROOT / xml).exists() and (ROOT / offsets).exists():
+            by_code = {int(v, 16) // 0x800: f"vox-{k}" for k, v in load_json(ROOT / offsets).items()}
+            codes = set(re.findall(r'voxCode="([0-9a-f]+)"', (ROOT / xml).read_text(encoding="utf-8")))
+            keys = {by_code[int(c, 16)] for c in codes if int(c, 16) in by_code and int(c, 16)}
+        elif xml:
+            print(f"[{ds}] radio_xml/vox_offsets not found - every conversation gets the in-game 2-row limit", file=sys.stderr)
+        _RADIO[ds] = keys
+    return _RADIO[ds]
+
+
+def subtitle_rows(ds, key):
+    from subtitles import RADIO_ROWS, SCENE_ROWS
+    return RADIO_ROWS if key in radio_keys(ds) else SCENE_ROWS
+
+
 def decide(req):
     """Apply an A/B review decision to the *current* state on disk (the batch pass may
     be writing concurrently, so never save a whole stale conversation).
@@ -304,7 +328,7 @@ def decide(req):
             if req["choice"] == "edit":
                 chunk["mtEdited"] = True
             if not chunk.get("subsEdited") and not chunk.get("timingEdited"):
-                auto_subs(chunk, req["text"], jpn_data(ds)[req["key"]][1])
+                auto_subs(chunk, req["text"], jpn_data(ds)[req["key"]][1], subtitle_rows(ds, req["key"]))
         conv["updated"] = __import__("datetime").datetime.now().isoformat()
         write_state(state, ds)
     return {"ok": True, "prev": prev, "chunk": chunk}
@@ -352,6 +376,7 @@ class Handler(BaseHTTPRequestHandler):
                     "engines": [{"name": n, "provider": e["provider"], "model": e.get("model")} for n, e in cfg["engines"].items()],
                     "export_path": d.get("export", f"{ds}-undub.json"),
                     "line_break": d.get("line_break", "\r"),
+                    "radio_keys": sorted(radio_keys(ds)),
                 })
             except Exception as e:  # noqa: BLE001
                 return self.send_json({"error": f"{type(e).__name__}: {e}"}, 500)

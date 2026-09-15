@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from server import ROOT, dataset, load_config, load_json, load_state, state_lock, translate, write_state  # noqa: E402
+from server import ROOT, dataset, load_config, load_json, load_state, state_lock, subtitle_rows, translate, write_state  # noqa: E402
 from subtitles import auto_subs, jpn_plain, needs_mt  # noqa: E402
 
 
@@ -121,10 +121,10 @@ def main():
                 touched = chunk_locked(chunk) or conv.get("status") == "done"
                 if eng == primary and not touched:
                     chunk["mt"] = text
-                    auto_subs(chunk, text, jpn[key][1])
+                    auto_subs(chunk, text, jpn[key][1], subtitle_rows(ds, key))
                 elif not chunk.get("mt") and not touched and primary not in engines:
                     chunk["mt"] = text  # primary not part of this run: fall back to whatever we have
-                    auto_subs(chunk, text, jpn[key][1])
+                    auto_subs(chunk, text, jpn[key][1], subtitle_rows(ds, key))
             write_state(st, ds)
 
     def run(job):

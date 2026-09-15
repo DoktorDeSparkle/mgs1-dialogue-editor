@@ -200,5 +200,7 @@ python vox_editor/radio_inject.py exports/voxRadio-d1.json <mgs1-undub>/workingF
 
 - The repository contains tooling only. Game script text, translations of it, and anything
   generated from it stay local (see `.gitignore`).
-- Subtitle row width is 40 characters, from the US data (p95 = 39).
+- Subtitles are measured in pixels with the MGS1 font widths: 260px per row, up to 4 rows for radio
+  calls and 2 for in-game scenes (radio = the clip is played by a RADIO.xml `VOX_CUES`; set `radio_xml`
+  and `vox_offsets` for the dataset). The editor shows each row's width and flags overflow.
 - Timing units are the game's own: `"start,duration"`.

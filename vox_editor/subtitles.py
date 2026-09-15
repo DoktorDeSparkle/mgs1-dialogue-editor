@@ -2,7 +2,12 @@
 Python ports of the same functions in static/app.js — keep them in sync."""
 import re
 
-ROW_WIDTH, MAX_ROWS = 40, 2  # keep in sync with static/app.js
+# Subtitle limits from mgs-qt-ui (mgs_font_text.py / FEATURES.md): 260px per row; radio calls 4 rows, in-game 2.
+# MGS1 ASCII glyph widths (original_widths.txt) from " " (0x20) to "~" (0x7E); kana/kanji glyphs are 12px.
+MAX_PX, RADIO_ROWS, SCENE_ROWS, WIDE_PX = 260, 4, 2, 12
+GLYPH_PX = [4, 5, 5, 12, 7, 10, 8, 3, 3, 3, 5, 8, 3, 5, 3, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 3, 3, 4, 8, 4, 8,
+            5, 8, 9, 9, 9, 8, 8, 10, 9, 4, 7, 9, 8, 11, 9, 10, 8, 10, 9, 8, 8, 9, 8, 12, 8, 8, 8, 3, 8, 3, 4, 6,
+            3, 7, 8, 7, 8, 8, 4, 8, 7, 3, 3, 7, 3, 10, 7, 7, 8, 8, 4, 6, 4, 7, 6, 9, 6, 6, 6, 2, 2, 2, 5]
 
 def jpn_plain(raw):
     s = re.sub(r"‹[A-Z]+›", "", raw)
@@ -21,49 +26,55 @@ def needs_mt(text):
     return bool(re.search(r"[぀-ヿ㐀-鿿A-Za-zＡ-Ｚａ-ｚ0-9０-９]", text))
 
 
-def wrap_rows(text):
-    text = " ".join(text.split())
-    if len(text) <= ROW_WIDTH:
-        return text
-    if len(text) <= ROW_WIDTH * 2:
-        mid, best = len(text) / 2, -1
-        for i, ch in enumerate(text):
-            if ch == " " and i <= ROW_WIDTH and len(text) - i - 1 <= ROW_WIDTH:
-                if best < 0 or abs(i - mid) < abs(best - mid):
-                    best = i
-        if best > 0:
-            return text[:best] + "\n" + text[best + 1:]
+def px_width(text):
+    return sum(GLYPH_PX[ord(c) - 0x20] if 0x20 <= ord(c) <= 0x7E else WIDE_PX if ord(c) > 0x7E else 0 for c in text)
+
+
+def wrap_lines(text):
+    """Greedy word wrap at MAX_PX (as mgs_font_text.wrap_text), then rebalance a 2-row result to the most even break."""
     rows, row = [], ""
-    for w in text.split(" "):
-        if row and len(row) + 1 + len(w) > ROW_WIDTH:
+    for w in " ".join(text.split()).split(" "):
+        if row and px_width(f"{row} {w}") > MAX_PX:
             rows.append(row)
             row = w
         else:
             row = f"{row} {w}" if row else w
     if row:
         rows.append(row)
-    return "\n".join(rows)
+    if len(rows) == 2:
+        t, best = " ".join(rows), None
+        for i, ch in enumerate(t):
+            if ch == " ":
+                a, b = px_width(t[:i]), px_width(t[i + 1:])
+                if a <= MAX_PX and b <= MAX_PX and (best is None or abs(a - b) < best[0]):
+                    best = (abs(a - b), i)
+        if best:
+            return [t[:best[1]], t[best[1] + 1:]]
+    return rows
 
 
-def split_pieces(text):
+def wrap_rows(text):
+    return "\n".join(wrap_lines(text))
+
+
+def split_pieces(text, rows=SCENE_ROWS):
+    """Split a translation into subtitle-sized pieces (<= rows rows each), preferring sentence boundaries."""
     text = " ".join(text.split())
-    cap = ROW_WIDTH * MAX_ROWS
-    if len(text) <= cap:
+    fits = lambda s: len(wrap_lines(s)) <= rows  # noqa: E731
+    if fits(text):
         return [text]
     pieces, acc = [], ""
     for s in re.split(r"(?<=[.!?…—])\s+", text):
-        while len(s) > cap:
-            cut = s.rfind(", ", 0, cap + 1)
-            if cut < cap * 0.4:
-                cut = s.rfind(" ", 0, cap + 1)
-            if cut <= 0:
-                cut = cap
+        while not fits(s):  # overlong sentence: take what fits, cutting after a comma in the second half
+            head = " ".join(wrap_lines(s)[:rows])
+            comma = head.rfind(", ")
+            cut = comma + 1 if comma >= len(head) * 0.4 else len(head)
             if acc:
                 pieces.append(acc)
                 acc = ""
-            pieces.append(s[:cut + (1 if s[cut:cut + 1] == "," else 0)].strip())
-            s = s[cut + 1:].strip()
-        if acc and len(acc) + 1 + len(s) > cap:
+            pieces.append(s[:cut].strip())
+            s = s[cut:].strip()
+        if acc and not fits(f"{acc} {s}"):
             pieces.append(acc)
             acc = s
         else:
@@ -88,8 +99,8 @@ def chunk_span(chunk, timings):
     return min(s for s, _ in spans), max(s + d for s, d in spans)
 
 
-def auto_subs(chunk, text, timings):
-    subs = [{"text": wrap_rows(p), "start": 0, "dur": 0} for p in split_pieces(text)]
+def auto_subs(chunk, text, timings, rows=SCENE_ROWS):
+    subs = [{"text": wrap_rows(p), "start": 0, "dur": 0} for p in split_pieces(text, rows)]
     start, end = chunk_span(chunk, timings)
     total = sum(max(len(s["text"]), 1) for s in subs) or 1
     t = start

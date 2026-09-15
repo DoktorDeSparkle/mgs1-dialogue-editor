@@ -1,5 +1,5 @@
 {
-  "_comment": "Paths are relative to the project root. 'source' records where the snapshot in data/ came from (mgs1-undub workingFiles). same_id: JPN and USA keys correspond 1:1, so the USA reference defaults to the same key. line_break: what a newline inside a subtitle becomes on export (｜ for all (the JPN game files and the finished undub files use ｜)).",
+  "_comment": "Paths are relative to the project root. 'source' records where the snapshot in data/ came from (mgs1-undub workingFiles). same_id: JPN and USA keys correspond 1:1, so the USA reference defaults to the same key. line_break: what a newline inside a subtitle becomes on export (｜ for all (the JPN game files and the finished undub files use ｜)). radio_xml + vox_offsets (vox only): conversations whose clip is played by a RADIO.xml VOX_CUES are radio calls (4 subtitle rows instead of 2).",
   "vox": {
     "label": "Vox (disc 1)",
     "jpn": "voxText-jpn.json",
@@ -10,6 +10,8 @@
     "alignments": "line_alignments.json",
     "dual": "vox_dual_scores.json",
     "hungarian": "vox_matches_min2.json",
+    "radio_xml": "../mgs1-undub/workingFiles/jpn-d1/radio/RADIO.xml",
+    "vox_offsets": "../mgs1-undub/workingFiles/jpn-d1/vox/newVoxOffsets.json",
     "same_id": false,
     "source": "mgs1-undub/workingFiles/{jpn,usa}-d1/vox/voxText-*.json",
     "line_break": "｜"

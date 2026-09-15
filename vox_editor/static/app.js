@@ -1,8 +1,12 @@
 "use strict";
 
 // ------------------------------------------------------------------ config
-const ROW_WIDTH = 40;   // USA subtitle rows: p95 39, p99 42 chars
-const MAX_ROWS = 2;     // auto-split target; >3 rows gets flagged
+// Subtitle limits from mgs-qt-ui (mgs_font_text.py / FEATURES.md): 260px per row; radio calls 4 rows, in-game 2.
+// MGS1 ASCII glyph widths (original_widths.txt), from ' ' (0x20) to '~' (0x7E). Keep in sync with subtitles.py.
+const MAX_PX = 260, RADIO_ROWS = 4, SCENE_ROWS = 2, WIDE_PX = 12; // WIDE_PX: kana/kanji glyphs are 12x12
+const GLYPH_PX = [4, 5, 5, 12, 7, 10, 8, 3, 3, 3, 5, 8, 3, 5, 3, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 3, 3, 4, 8, 4, 8,
+  5, 8, 9, 9, 9, 8, 8, 10, 9, 4, 7, 9, 8, 11, 9, 10, 8, 10, 9, 8, 8, 9, 8, 12, 8, 8, 8, 3, 8, 3, 4, 6,
+  3, 7, 8, 7, 8, 8, 4, 8, 7, 3, 3, 7, 3, 10, 7, 7, 8, 8, 4, 6, 4, 7, 6, 9, 6, 6, 6, 2, 2, 2, 5];
 const STRONG_SIM = 0.45; // LaBSE line sim considered a confident line alignment
 const AGREE_WARN = 0.7;  // LaBSE sim between engines' English; sampled: >=0.72 paraphrase, 0.6-0.7 real meaning differences
 
@@ -86,43 +90,45 @@ const parseTiming = (s) => { const [a, b] = String(s || "0,0").split(",").map(Nu
 const lineKeysOf = (entry) => Object.keys(entry?.[0] || {}).sort();
 const nonEmptyCount = (entry) => lineKeysOf(entry).filter((k) => jpnPlain(entry[0][k])).length;
 
-// Wrap one subtitle into rows <= ROW_WIDTH, preferring a balanced 2-row break.
-function wrapRows(text) {
-  text = text.replace(/\s+/g, " ").trim();
-  if (text.length <= ROW_WIDTH) return text;
-  if (text.length <= ROW_WIDTH * 2) {
-    const mid = text.length / 2;
-    let best = -1;
-    for (let i = 0; i < text.length; i++) {
-      if (text[i] !== " ") continue;
-      if (i > ROW_WIDTH || text.length - i - 1 > ROW_WIDTH) continue;
-      if (best < 0 || Math.abs(i - mid) < Math.abs(best - mid)) best = i;
-    }
-    if (best > 0) return text.slice(0, best) + "\n" + text.slice(best + 1);
-  }
+const pxWidth = (s) => [...s].reduce((n, c) => { const i = c.charCodeAt(0) - 0x20; return n + (i >= 0 && i < GLYPH_PX.length ? GLYPH_PX[i] : c > "~" ? WIDE_PX : 0); }, 0);
+// radio calls (a VOX_CUES in RADIO.xml plays this clip) show 4 rows, in-game scenes 2
+const maxRows = (key = cur) => (D.radio_keys?.has(key) ? RADIO_ROWS : SCENE_ROWS);
+
+// Greedy word wrap at MAX_PX (as mgs_font_text.wrap_text), then rebalance a 2-row result to the most even break.
+function wrapLines(text) {
   const rows = []; let row = "";
-  for (const w of text.split(" ")) {
-    if (row && (row + " " + w).length > ROW_WIDTH) { rows.push(row); row = w; } else row = row ? row + " " + w : w;
+  for (const w of text.replace(/\s+/g, " ").trim().split(" ")) {
+    if (row && pxWidth(row + " " + w) > MAX_PX) { rows.push(row); row = w; } else row = row ? row + " " + w : w;
   }
   if (row) rows.push(row);
-  return rows.join("\n");
-}
-
-// Split a translated chunk into subtitle-sized pieces (<= MAX_ROWS rows each).
-function splitPieces(text) {
-  text = text.replace(/\s+/g, " ").trim();
-  const cap = ROW_WIDTH * MAX_ROWS;
-  if (text.length <= cap) return [text];
-  const sentences = text.split(/(?<=[.!?…—])\s+/);
-  const pieces = []; let acc = "";
-  for (let s of sentences) {
-    while (s.length > cap) { // overlong sentence: cut at a space near the cap, prefer after a comma
-      let cut = s.lastIndexOf(", ", cap); if (cut < cap * 0.4) cut = s.lastIndexOf(" ", cap);
-      if (cut <= 0) cut = cap;
-      if (acc) { pieces.push(acc); acc = ""; }
-      pieces.push(s.slice(0, cut + (s[cut] === "," ? 1 : 0)).trim()); s = s.slice(cut + 1).trim();
+  if (rows.length === 2) {
+    const t = rows.join(" ");
+    let best = null;
+    for (let i = t.indexOf(" "); i > 0; i = t.indexOf(" ", i + 1)) {
+      const a = pxWidth(t.slice(0, i)), b = pxWidth(t.slice(i + 1));
+      if (a <= MAX_PX && b <= MAX_PX && (!best || Math.abs(a - b) < best[0])) best = [Math.abs(a - b), i];
     }
-    if (acc && (acc + " " + s).length > cap) { pieces.push(acc); acc = s; } else acc = acc ? acc + " " + s : s;
+    if (best) return [t.slice(0, best[1]), t.slice(best[1] + 1)];
+  }
+  return rows;
+}
+const wrapRows = (text) => wrapLines(text).join("\n");
+
+// Split a translated chunk into subtitle-sized pieces (<= rows rows each), preferring sentence boundaries.
+function splitPieces(text, rows = SCENE_ROWS) {
+  text = text.replace(/\s+/g, " ").trim();
+  const fits = (s) => wrapLines(s).length <= rows;
+  if (fits(text)) return [text];
+  const pieces = []; let acc = "";
+  for (let s of text.split(/(?<=[.!?…—])\s+/)) {
+    while (!fits(s)) { // overlong sentence: take what fits, cutting after a comma when one is in the second half
+      const head = wrapLines(s).slice(0, rows).join(" ");
+      const comma = head.lastIndexOf(", ");
+      const cut = comma >= head.length * 0.4 ? comma + 1 : head.length;
+      if (acc) { pieces.push(acc); acc = ""; }
+      pieces.push(s.slice(0, cut).trim()); s = s.slice(cut).trim();
+    }
+    if (acc && !fits(acc + " " + s)) { pieces.push(acc); acc = s; } else acc = acc ? acc + " " + s : s;
   }
   if (acc) pieces.push(acc);
   return pieces;
@@ -147,7 +153,7 @@ function redistribute(chunk, key = cur) {
 }
 
 function autoSubs(chunk, text, key = cur) {
-  chunk.subs = splitPieces(text).map((p) => ({ text: wrapRows(p), start: 0, dur: 0 }));
+  chunk.subs = splitPieces(text, maxRows(key)).map((p) => ({ text: wrapRows(p), start: 0, dur: 0 }));
   chunk.timingEdited = false; chunk.subsEdited = false;
   redistribute(chunk, key);
 }
@@ -425,7 +431,8 @@ function renderEditor() {
   $("#jpnTitle").textContent = `JPN ${cur}`;
   const nSubs = conv.chunks.reduce((n, c) => n + c.subs.length, 0);
   const missing = conv.chunks.filter((c) => !c.subs.length).length;
-  $("#jpnMeta").textContent = `${lineKeysOf(entry).length} lines · ${conv.chunks.length} chunks · ${nSubs} subtitles` +
+  $("#jpnMeta").textContent = `${maxRows() === RADIO_ROWS ? "radio call (4 rows)" : "in-game (2 rows)"} · ` +
+    `${lineKeysOf(entry).length} lines · ${conv.chunks.length} chunks · ${nSubs} subtitles` +
     (missing ? ` · ${missing} chunks without subtitles (export keeps JPN)` : "") + (top ? "" : " · no vector candidate");
   $("#undoBtn").disabled = !undoStack.length; $("#redoBtn").disabled = !redoStack.length;
 
@@ -506,8 +513,10 @@ function renderSub(chunk, i, sub, j) {
   const counts = h("div", { class: "counts" });
   const updateCounts = () => {
     const rows = ta.value.split("\n");
-    counts.innerHTML = rows.map((r) => `<span class="${r.length > ROW_WIDTH ? "over" : ""}">${r.length}</span>`).join(" · ") +
-      (rows.length > 3 ? ' <span class="over">too many rows</span>' : "");
+    const limit = maxRows();
+    counts.innerHTML = rows.map((r) => { const px = pxWidth(r); return `<span class="${px > MAX_PX ? "over" : ""}">${px}px</span>`; }).join(" · ") +
+      (rows.length > limit ? ` <span class="over">${rows.length} rows (max ${limit})</span>` : "");
+    counts.title = `pixel width per row (max ${MAX_PX}px) · ${limit === RADIO_ROWS ? "radio call" : "in-game scene"}: up to ${limit} rows`;
   };
   updateCounts();
   let snap;
@@ -726,6 +735,7 @@ function bind() {
 
 (async function main() {
   D = await api("/api/data");
+  D.radio_keys = new Set(D.radio_keys || []);
   for (const r of D.candidates) CAND.set(r.jpn_key, r);
   for (const r of D.dual) DUAL.set(r.usa_key, r);
   for (const r of D.hungarian) HUNG.set(r.jpn_key, r);

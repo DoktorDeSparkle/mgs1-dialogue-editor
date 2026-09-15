@@ -116,11 +116,13 @@ line-F1 alone.
   `workingFiles/jpn-d1/radio/RADIO.xml` → RadioDatRecompiler; voxText JSON → voxTextInjector → voxRejoiner; boot and
   check a radio call (vox-0078: 2 calls at 140.48) and an in-game vox scene. If it works, the main assembly switches to
   building both VOX and RADIO from this export (storyCalls-v2.json is already folded into the editor state).
-- Subtitle row limits differ: radio calls show up to 4 rows, in-game vox scenes 2. Editor still uses one limit
-  (ROW_WIDTH 40, MAX_ROWS 2); should pick the limit per conversation (radio = has a VOX_CUES in RADIO.xml) and
-  measure pixel width. Source of truth: `~/projects/mgs-qt-ui/mgs-undubbed-gui` — `_MGS_WIDTHS` in `src/mainwindow.py`
-  (ASCII glyph widths from `original_widths.txt`), `wrap_text()` / `string_pixel_width()` in
-  `scripts/translation/mgs_font_text.py`, max 260px per line; FEATURES.md: radio 4 lines, demo/vox/zMovie 2 lines.
+- Subtitle limits (done 2026-09-15): rows are measured in pixels — MGS1 ASCII glyph widths, 260px per row, kana/kanji
+  12px — and radio calls allow 4 rows, in-game scenes 2. Source of truth: `~/projects/mgs-qt-ui/mgs-undubbed-gui`
+  (`_MGS_WIDTHS` in `src/mainwindow.py` from `original_widths.txt`; `wrap_text()` in
+  `scripts/translation/mgs_font_text.py`; FEATURES.md). Copies: `GLYPH_PX` in `static/app.js` and `subtitles.py`.
+  Radio = the vox clip is played by a VOX_CUES in the dataset's `radio_xml` (`server.radio_keys`, 761 vox convs; RADIO.xml
+  holds both discs' calls, so a disc-2 voxCode could mark a disc-1 conv as radio). Existing subtitles aren't re-wrapped;
+  the editor flags rows over 260px or over the row limit.
 - 243 exported vox convs have no text in RADIO.xml (vox-0002, 0006, 0029...): stage-played, so their subtitles come
   from the vox file itself — voxTextInjector text matters for them. 7 more (vox-0110, 0223, 0230, 0262, 0275, 0976,
   1120) have their JPN text in RADIO.xml under a different voxCode — unexplained.
