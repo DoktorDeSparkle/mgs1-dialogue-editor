@@ -83,12 +83,49 @@ line-F1 alone.
   per-dataset editor state in `state/` (vox keeps `vox_editor_state.json`), exports go to `exports/`. Demo/zMovie keys
   correspond 1:1 JPN↔USA (`same_id`), so the USA reference defaults to the same key; `match_dataset.py` still builds
   candidates + line alignments into `match/`. Demo JSON writes ruby as half-width `#｛base、reading｝#`. Export line break
-  is per dataset (vox `\r`, demo/zMovie `｜`). Editor/review take `?ds=`; batch takes `--dataset`; `run_all_mt.sh` runs
+  is per dataset (all `｜`, matching the JPN files and the finished undub files). Editor/review take `?ds=`; batch takes `--dataset`; `run_all_mt.sh` runs
   every dataset then scores agreement.
+- `vox_editor/import_translation.py` — imports an existing hand translation into a dataset's editor state: every conv
+  whose text differs from the JPN source becomes status `done` with those subtitles (attached to JPN lines by start time,
+  chunks locked via `subsEdited`/`timingEdited`; existing Sugoi/Gemma output kept as alternates). Backs up the state first.
+  Vox disc 1 was seeded from `mgs1-undub/build-proprietary/vox/voxText-jpn-d1.json` (partial overlay, Jun 11).
+- `vox_editor/import_story_calls.py` — imports `mgs1-undub/build-proprietary/radio/storyCalls-v2.json` (radio story-call
+  English, keyed call → VOX_CUES → SUBTITLE offsets in the JPN d1 RADIO.xml) into the vox state, overwriting. Mapping:
+  VOX_CUES `voxCode` = clip byte offset in VOX.DAT / 0x800 (`workingFiles/jpn-d1/vox/newVoxOffsets.json`) → vox key; the
+  i-th SUBTITLE of a block is the i-th vox line (radio holds the displayed text, vox the timings). 88 convs imported
+  2026-09-14.
+- **Game build export** (vox → RADIO + VOX from one source):
+  - `vox_editor/vox_to_radio.py` — editor state → `exports/voxRadio-d1.json` (per conv: voxCode, JPN lines, time-ordered
+    subtitles each tagged with its JPN line; `text: null` = keep JPN) + `exports/voxText-jpn-undub-d1.json` (same
+    subtitles, `｜` breaks, for mgs1-undub `voxTextInjector.py`). `--scope reviewed|done|all`, `--only`.
+  - `vox_editor/radio_inject.py` — stdlib-only (meant to move into mgs1-undub/myScripts): voxRadio JSON + RADIO.xml →
+    new RADIO.xml. Finds every VOX_CUES by voxCode, aligns its SUBTITLEs (document order, incl. IF/ELSE branches) to the
+    vox lines by JPN text (branches repeat a line once per branch, e.g. vox-0039 12 SUBTITLEs / 9 lines), rejects blocks
+    whose JPN text doesn't match (RADIO.DAT holds both discs' calls). Replaces each line's SUBTITLE in place, copying
+    face/anim/unk3 (speaker), inserts extra subtitles after it (offset `<orig>-2`), sets Call `modified="True"`, drops
+    textHex. Branch lines accept exactly one subtitle. RadioDatRecompiler recomputes all container sizes.
+  - Verified 2026-09-14 (temp dir): full export 520 convs → 1663 blocks / 270 convs updated, 0 skipped; compiled with
+    RadioDatRecompiler (+STAGE.DIR) and re-extracted with RadioDatTools: only the target calls change, an inserted
+    subtitle survives with its speaker. The 10 "Offset invalid" STAGE.DIR errors also occur for the unmodified XML.
 - `mt_bakeoff/` — record of the translation model comparison (script, raw results, HTML report).
 - `.venv/` — local venv with `sentence-transformers`, `scipy`, `numpy`
 
 ## Open threads / next steps
+
+- **NEXT (action item): test the game build export in the real build.** `vox_to_radio.py` → `radio_inject.py` into
+  `workingFiles/jpn-d1/radio/RADIO.xml` → RadioDatRecompiler; voxText JSON → voxTextInjector → voxRejoiner; boot and
+  check a radio call (vox-0078: 2 calls at 140.48) and an in-game vox scene. If it works, the main assembly switches to
+  building both VOX and RADIO from this export (storyCalls-v2.json is already folded into the editor state).
+- Subtitle row limits differ: radio calls show up to 4 rows, in-game vox scenes 2. Editor still uses one limit
+  (ROW_WIDTH 40, MAX_ROWS 2); should pick the limit per conversation (radio = has a VOX_CUES in RADIO.xml) and ideally
+  measure pixel width — a pixel-width table exists somewhere in mgs1-undub (not in FONT_REPORT.md / FontBanks.md).
+- 243 exported vox convs have no text in RADIO.xml (vox-0002, 0006, 0029...): stage-played, so their subtitles come
+  from the vox file itself — voxTextInjector text matters for them. 7 more (vox-0110, 0223, 0230, 0262, 0275, 0976,
+  1120) have their JPN text in RADIO.xml under a different voxCode — unexplained.
+- Modified calls that keep some Japanese subtitles (14 in the full export) lose their graphicsBytes in the recompiler
+  (only appended for unmodified calls) — check kanji rendering in-game for partially translated calls.
+- If a rebuilt VOX.DAT changes clip sizes, every RADIO.xml voxCode after it must be remapped via the new offsets —
+  radio_inject.py does not do this yet (it expects voxCodes that match the RADIO.xml it's given).
 
 - 1-2 line "barks" (~600+ per side) still unmatched — line-alignment/whole-conv
   cosine likely won't disambiguate near-duplicate short lines ("Snake!") well;

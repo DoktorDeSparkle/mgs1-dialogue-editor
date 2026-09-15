@@ -119,10 +119,12 @@ Demo and zMovie IDs already correspond, but the same candidates and alignments a
 ```
 
 - **Editor** (`/?ds=vox`, dataset switcher in the top bar):
-  - The JPN entry is on the left. Shift-click lines and press **G** to group a split
-    sentence into one chunk.
-  - Edit, split (⌘Enter), insert or re-time subtitles.
-  - The matched USA script is on the right, with aligned lines highlighted.
+  - The JPN entry is on the left. Click a line (or anywhere in a chunk), Shift-click another and
+    press **G**, or use **join ↓**, to group a split sentence into one chunk. Grouping re-translates it.
+  - Each engine's suggestion has a **use** button that puts it into the subtitle box, where you edit it.
+    Split (⌘Enter), insert or re-time subtitles.
+  - The matched USA script is on the right, with aligned lines highlighted. **→** replaces the text
+    of the subtitle you last clicked into (timing kept); **⇧→** appends it.
   - Sort by **MT engines disagree most** to find problem lines.
 - **A/B review** (`/review.html?ds=vox`):
   - Shows one line at a time, with the lead-up context, the next line and the aligned US dub line.
@@ -135,8 +137,37 @@ Demo and zMovie IDs already correspond, but the same candidates and alignments a
 `exports/demoText-jpn-undub-d1.json`:
 
 - Edited entries get their English subtitles, renumbered `01..NN` with timings.
+- The menu next to the filename picks which entries count: **Done + In progress** (default), **Done
+  only**, or **All with subtitles** (includes unreviewed MT drafts).
 - Untouched entries, and chunks without subtitles, keep the original Japanese.
-- The line break inside a subtitle is set per dataset: vox uses `\r`, demo and zMovie use `｜`.
+- The line break inside a subtitle is `｜` for every dataset, matching the game files.
+
+### 5. Import existing translations
+
+- `vox_editor/import_translation.py --dataset vox --from <voxText-jpn-d1.json>` loads a hand translation
+  in the same format. Entries that differ from the Japanese become **Done**.
+- `vox_editor/import_story_calls.py` loads radio story calls (`storyCalls-v2.json` from the mgs1-undub
+  repo) into the vox state, mapping each radio VOX_CUES block to its vox clip.
+- Both back up the state file first and support `--dry-run`.
+
+### 6. Build export: RADIO.xml + vox (experimental, being tested)
+
+Codec calls read their subtitle **text** from RADIO.DAT and their **timings** from the vox clip. Each
+RADIO.xml `VOX_CUES` names its clip with `voxCode` = the clip's byte offset in VOX.DAT ÷ 0x800.
+
+```sh
+.venv/bin/python vox_editor/vox_to_radio.py        # -> exports/voxRadio-d1.json + exports/voxText-jpn-undub-d1.json
+python vox_editor/radio_inject.py exports/voxRadio-d1.json <mgs1-undub>/workingFiles/jpn-d1/radio/RADIO.xml RADIO-vox.xml --report report.json
+# then in mgs1-undub: RadioDatRecompiler.py RADIO-vox.xml new-RADIO.DAT -s STAGE.DIR -S new-STAGE.DIR
+# and voxTextInjector.py / voxRejoiner.py with exports/voxText-jpn-undub-d1.json
+```
+
+`radio_inject.py` uses only the standard library. For each conversation it:
+- finds every VOX_CUES block for the clip and checks that the block's Japanese matches the vox lines
+  (RADIO.DAT holds calls from both discs);
+- aligns SUBTITLE elements to lines, including IF/ELSE branches that repeat a line;
+- replaces each line's subtitle in place, keeping the speaker (`face`/`anim`), and inserts extra
+  subtitles right after it. The recompiler recalculates all sizes.
 
 ## Layout
 
@@ -151,6 +182,8 @@ Demo and zMovie IDs already correspond, but the same candidates and alignments a
 | `vox_editor/batch_translate.py` | Batch translation and agreement scoring |
 | `vox_editor/subtitles.py` | Markup cleanup, subtitle wrapping/splitting, timing (mirrors `static/app.js`) |
 | `vox_editor/static/` | Editor (`index.html`, `app.js`) and A/B review (`review.html`) |
+| `vox_editor/import_translation.py`, `import_story_calls.py` | Import existing translations into the editor state |
+| `vox_editor/vox_to_radio.py`, `radio_inject.py` | Build export: editor state → RADIO.xml subtitles + vox JSON |
 | `exports/` | Exported undub JSON |
 | `mt_bakeoff/` | Translation model comparison script (results stay local) |
 | `notes/` | Development notes (`notes/CLAUDE.md`: method details, decisions, open threads) |
@@ -160,7 +193,7 @@ Demo and zMovie IDs already correspond, but the same candidates and alignments a
 | Markup | Meaning | Handling |
 |---|---|---|
 | `‹TK›`, `‹BK›` | Text control codes | Stripped for matching/MT |
-| `｜` (and `\r` in USA vox) | Line break within a subtitle | Newline in the editor, restored on export |
+| `｜` (and `\r` in USA vox) | Line break within a subtitle | Newline in the editor, `｜` on export, `\r\n` in RADIO.xml |
 | `＃｛base、reading｝＃` (vox) / `#｛base、reading｝#` (demo) | Ruby / alt text | Shown as ruby. MT gets `base（reading）`, or just `base` when it's already Latin (e.g. FOX HOUND) |
 
 ## Notes
