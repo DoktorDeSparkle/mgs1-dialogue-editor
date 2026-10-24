@@ -127,3 +127,12 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; max-width: 560px; }
 dialog::backdrop { background: rgba(0,0,0,.5); }
 code { font-family: var(--mono); font-size: 12px; }
+
+/* ---- collaboration ---- */
+.collab-flag { color: #a594cf; font-size: 10px; font-family: var(--mono); }
+dialog#share { width: min(520px, 92vw); background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; }
+dialog#share h3 { margin-top: 0; }
+dialog#share .field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; font-size: 12px; color: var(--muted); }
+dialog#share .share-scope { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+dialog#share .row { display: flex; gap: 8px; }
+dialog#share form { margin: 0; }

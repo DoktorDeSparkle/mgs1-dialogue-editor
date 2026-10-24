@@ -25,9 +25,12 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import collab
+
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = Path(__file__).resolve().parent / "static"
 EXPORT_DIR = ROOT / "exports"
+COLLAB = collab.Store(os.environ.get("VOX_EDITOR_COLLAB_DIR") or ROOT / "collab")
 PORT = int(os.environ.get("VOX_EDITOR_PORT", "8765"))
 
 
@@ -225,15 +228,7 @@ def export(state, jpn, path, line_break):
         if not any(s.get("text", "").strip() for c in chunks for s in c.get("subs", [])):
             out[key] = orig
             continue
-        rows = []  # (text, timing)
-        for chunk in chunks:
-            subs = [s for s in chunk.get("subs", []) if s.get("text", "").strip()]
-            if subs:
-                rows += [(s["text"].strip().replace("\n", line_break), fmt_timing(s["start"], s["dur"])) for s in subs]
-            else:
-                rows += [(orig[0][k], orig[1].get(k, "0,0")) for k in chunk["lines"] if k in orig[0]]
-        out[key] = [{f"{i:02d}": t for i, (t, _) in enumerate(rows, 1)},
-                    {f"{i:02d}": tm for i, (_, tm) in enumerate(rows, 1)}]
+        out[key] = collab.export_rows(conv, orig, line_break)
         edited += 1
     Path(path).write_text(json.dumps(out, ensure_ascii=False, indent=4), encoding="utf-8")
     return edited
@@ -303,6 +298,32 @@ def decide(req):
     return {"ok": True, "prev": prev, "chunk": chunk}
 
 
+# ---------------------------------------------------------------- collaboration (see collab.py)
+
+def collab_inbox(history=False):
+    """Imported patches, each entry annotated with the reviewer's current version and how they relate."""
+    known = load_datasets()
+    out = []
+    for p in COLLAB.patches(include_archive=history):
+        ds = p["dataset"]
+        if ds not in known:
+            p["error"] = f"dataset {ds!r} isn't configured in your datasets.json"
+            out.append(p)
+            continue
+        jpn = jpn_data(ds)
+        convs = load_state(ds).get("convs", {})
+        for e in p["entries"]:
+            local = convs.get(e["key"])
+            e["local"] = local
+            e["jpn_local"] = jpn.get(e["key"])
+            e["assess"] = collab.assess(e, local, jpn.get(e["key"]))
+            if (e.get("resolution") or {}).get("action") == "accept":
+                e["assess"]["revertable"] = collab.content_hash(local) == e["hash"]
+                e["resolution"].pop("replaced", None)  # can be large; the page doesn't need it
+        out.append(p)
+    return {"patches": out, "datasets": [{"name": k, "label": v.get("label", k)} for k, v in known.items()]}
+
+
 # ---------------------------------------------------------------- http
 
 class Handler(BaseHTTPRequestHandler):
@@ -348,6 +369,12 @@ class Handler(BaseHTTPRequestHandler):
                 })
             except Exception as e:  # noqa: BLE001
                 return self.send_json({"error": f"{type(e).__name__}: {e}"}, 500)
+        if path == "/api/collab/inbox":
+            try:
+                q = urllib.parse.parse_qs(query)
+                return self.send_json(collab_inbox(q.get("history", [""])[0] == "1"))
+            except Exception as e:  # noqa: BLE001
+                return self.send_json({"error": f"{type(e).__name__}: {e}"}, 500)
         path = "/index.html" if path in ("/", "") else path
         f = (STATIC / path.lstrip("/")).resolve()
         if STATIC not in f.parents or not f.is_file():
@@ -385,6 +412,26 @@ class Handler(BaseHTTPRequestHandler):
                 EXPORT_DIR.mkdir(exist_ok=True)
                 n = export(state, load_json(ROOT / d["jpn"]), EXPORT_DIR / name, req.get("line_break") or d.get("line_break", "\r"))
                 return self.send_json({"ok": True, "path": f"exports/{name}", "edited": n})
+            if self.path == "/api/collab/export":
+                d = dataset(ds)
+                with state_lock(ds):
+                    state = load_state(ds)
+                patch, name = collab.build_patch(ds, req["keys"], state, jpn_data(ds), req.get("author", ""),
+                                                 req.get("note", ""), d.get("line_break", "\r"))
+                COLLAB.save_outbox(patch, name)
+                return self.send_json({"ok": True, "filename": name, "patch": patch})
+            if self.path == "/api/collab/import":
+                return self.send_json({"ok": True, **COLLAB.import_patch(req["patch"], req.get("filename", ""))})
+            if self.path == "/api/collab/resolve":
+                ds = json.loads(COLLAB.find(req["file"]).read_text(encoding="utf-8"))["dataset"]
+                dataset(ds)  # the patch's dataset must exist here
+                with state_lock(ds):
+                    state = load_state(ds)
+                    out = collab.resolve(COLLAB, state, jpn_data(ds), req["file"], req["key"], req["action"],
+                                         req.get("reviewer", ""), req.get("note", ""))
+                    if req["action"] != "reject":
+                        write_state(state, ds)
+                return self.send_json(out)
             self.send_error(404)
         except urllib.error.HTTPError as e:
             self.send_json({"error": f"HTTP {e.code}: {e.read().decode('utf-8', 'replace')[:500]}"}, 502)
