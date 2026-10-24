@@ -228,7 +228,8 @@ function renderList() {
     ul.append(h("li", { class: r.jk === cur ? "active" : "", "data-key": r.jk, onclick: () => openConv(r.jk) },
       h("span", { class: `dot ${r.status}`, title: STATUS_LABEL[r.status] }),
       h("span", { class: "key" }, r.jk, h("span", { class: "muted small" }, `  ${r.n}L`),
-        agree != null && agree < AGREE_WARN && h("span", { class: "agree-flag", title: `lowest MT agreement between engines: ${agree}` }, ` ≠${agree.toFixed(2)}`)),
+        agree != null && agree < AGREE_WARN && h("span", { class: "agree-flag", title: `lowest MT agreement between engines: ${agree}` }, ` ≠${agree.toFixed(2)}`),
+        STATE.convs[r.jk]?.collab && h("span", { class: "collab-flag", title: collabTitle(STATE.convs[r.jk].collab) }, " ⇄")),
       h("span", { class: `conf ${r.conf.level}`, title: top ? `top: ${top.usa_key} ${top.combined_score}` : "no candidate" },
         top ? top.combined_score.toFixed(2) : "—"),
       h("span", { class: "preview" }, first)));
@@ -378,7 +379,8 @@ function renderEditor() {
   const nSubs = conv.chunks.reduce((n, c) => n + c.subs.length, 0);
   const missing = conv.chunks.filter((c) => !c.subs.length).length;
   $("#jpnMeta").textContent = `${lineKeysOf(entry).length} lines · ${conv.chunks.length} chunks · ${nSubs} subtitles` +
-    (missing ? ` · ${missing} chunks without subtitles (export keeps JPN)` : "") + (top ? "" : " · no vector candidate");
+    (missing ? ` · ${missing} chunks without subtitles (export keeps JPN)` : "") + (top ? "" : " · no vector candidate") +
+    (conv.collab ? ` · ${collabTitle(conv.collab)}` : "");
   $("#undoBtn").disabled = !undoStack.length; $("#redoBtn").disabled = !redoStack.length;
 
   box.replaceChildren();
@@ -601,6 +603,42 @@ function highlightRef(scroll) {
   }
 }
 
+// ------------------------------------------------------------------ collaboration (collab.py)
+const collabTitle = (c) => `merged from ${c.author || "a collaborator"}'s patch, ${(c.accepted || "").slice(0, 10)}`;
+const AUTHOR_KEY = "undub-author";
+const hasSubs = (c) => c?.chunks?.some((ch) => ch.subs.some((s) => s.text.trim()));
+
+function shareKeys(scope) {
+  if (scope === "current") return cur && hasSubs(conv) ? [cur] : [];
+  const keys = scope === "done" ? Object.keys(D.jpn).filter((k) => STATE.convs[k]?.status === "done") : listKeys;
+  return keys.filter((k) => hasSubs(STATE.convs[k]));
+}
+
+function openShare() {
+  try { $("#shareAuthor").value = localStorage.getItem(AUTHOR_KEY) || ""; } catch {}
+  $("#shareCur").textContent = cur || "—";
+  $("#shareDoneN").textContent = shareKeys("done").length;
+  $("#shareListN").textContent = shareKeys("list").length;
+  $("#share").showModal();
+}
+
+async function doShare() {
+  const author = $("#shareAuthor").value.trim();
+  if (!author) { toast("Add your name so the reviewer knows who it's from", true); $("#shareAuthor").focus(); return; }
+  try { localStorage.setItem(AUTHOR_KEY, author); } catch {}
+  const scope = document.querySelector("input[name=shareScope]:checked").value;
+  clearTimeout(saveTimer); if (conv && STATE.convs[cur]) await save(cur, conv);
+  const keys = shareKeys(scope);
+  if (!keys.length) { toast(scope === "current" ? "This entry has no English subtitles yet" : "No entries with subtitles to export", true); return; }
+  try {
+    const r = await api("/api/collab/export", { keys, author, note: $("#shareNote").value.trim() });
+    const a = h("a", { href: URL.createObjectURL(new Blob([JSON.stringify(r.patch, null, 1)], { type: "application/json" })), download: r.filename });
+    document.body.append(a); a.click(); a.remove();
+    $("#share").close(); $("#shareNote").value = "";
+    toast(`Exported ${keys.length} entr${keys.length === 1 ? "y" : "ies"} → ${r.filename}`, false, 6000);
+  } catch (e) { toast("Share failed: " + e.message, true, 7000); }
+}
+
 // ------------------------------------------------------------------ boot
 function navigate(dir) {
   const i = listKeys.indexOf(cur);
@@ -619,6 +657,8 @@ function bind() {
   const step = (dir) => { const keys = Object.keys(D.usa).filter((k) => lineKeysOf(D.usa[k]).length); const i = keys.indexOf(conv.usa_ref); setRef(keys[Math.max(0, Math.min(keys.length - 1, (i < 0 ? keys.indexOf(cur) : i) + dir))]); };
   $("#usaPrev").onclick = () => step(-1); $("#usaNext").onclick = () => step(1);
   $("#helpBtn").onclick = () => $("#help").showModal();
+  $("#shareBtn").onclick = openShare;
+  $("#shareGo").onclick = doShare;
   $("#exportBtn").onclick = async () => {
     try {
       clearTimeout(saveTimer); if (conv) await save(cur, conv);
@@ -656,6 +696,7 @@ function bind() {
   for (const d of D.datasets) dsSel.append(h("option", { value: d.name, selected: d.name === DS }, d.label));
   dsSel.onchange = () => { location.href = `/?ds=${encodeURIComponent(dsSel.value)}`; };
   $("#reviewLink").href = `review.html?ds=${encodeURIComponent(DS)}`;
+  $("#inboxLink").href = `collab.html?ds=${encodeURIComponent(DS)}`;
   document.title = `${D.datasets.find((d) => d.name === DS)?.label || DS} · Undub Editor`;
   bind();
   renderList();

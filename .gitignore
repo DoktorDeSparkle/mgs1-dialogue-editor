@@ -17,6 +17,7 @@ __pycache__/
 data/
 state/
 exports/
+collab/
 match/
 mt_bakeoff/*.html
 jpn_to_usa_table.md

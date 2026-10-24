@@ -138,6 +138,35 @@ Demo and zMovie IDs already correspond, but the same candidates and alignments a
 - Untouched entries, and chunks without subtitles, keep the original Japanese.
 - The line break inside a subtitle is set per dataset: vox uses `\r`, demo and zMovie use `｜`.
 
+### 5. Collaborate (async, between separate installs)
+
+Each collaborator runs their own copy of the editor. Finished work moves between them as
+**patch files** that the other person reviews before anything changes. There's no shared server.
+
+1. **Share**: in the editor, click **Share…**, enter your name, and choose this entry, all *Done*
+   entries, or the entries in the current sidebar list. You get a file like
+   `vox_vox-0007_Alice_20261024-1705.undub-patch.json` (dataset, entry, author, time). A copy is
+   kept in `collab/outbox/`. Send the file however you like.
+2. **Import**: the receiver opens **Inbox →** (`/collab.html`) and clicks **Import patch…**, or
+   drops the file on the page. Imported patches wait in `collab/inbox/`. Nothing is merged yet.
+3. **Review**: each entry shows the JPN lines it replaces, the reviewer's current version and the
+   incoming version side by side, with differing rows highlighted. It also gets a tag:
+   - **new**: the reviewer only has an MT draft (or nothing) for this entry.
+   - **update**: built on the version the reviewer has now (they merged or sent it earlier).
+   - **conflict**: both people changed the entry since they last synced.
+   - **identical**: nothing to do.
+
+   The page warns if the two copies of the original JPN text differ. It blocks the merge if the
+   patch refers to lines the reviewer doesn't have.
+4. **Accept (A) / Reject (R)**, with an optional note. Accepting replaces the entry in the
+   reviewer's state and keeps their previous version, so **Revert merge** can undo it as long as
+   the entry hasn't been edited since. A rejected entry can be **Reopen**ed. Fully reviewed
+   patches move to `collab/archive/`. Merged entries show **⇄** in the editor list.
+
+A patch contains each entry's full editor state (chunks, subtitles, timings, MT), the JPN lines it
+replaces (with a hash), and the `[textDict, timingDict]` it exports as. Patches contain game
+text, so `collab/` is gitignored.
+
 ## Layout
 
 | Path | What |
@@ -149,8 +178,10 @@ Demo and zMovie IDs already correspond, but the same candidates and alignments a
 | `match/`, `jpn_to_usa_candidates.json`, `line_alignments.json`, `vox_*.json` | Matching outputs (generated) |
 | `vox_editor/server.py` | Local web server (stdlib), translation proxy, export |
 | `vox_editor/batch_translate.py` | Batch translation and agreement scoring |
+| `vox_editor/collab.py` | Patch files for async collaboration: build, import, compare, accept/reject/revert |
+| `collab/` | Imported (`inbox/`, `archive/`) and exported (`outbox/`) patches (generated) |
 | `vox_editor/subtitles.py` | Markup cleanup, subtitle wrapping/splitting, timing (mirrors `static/app.js`) |
-| `vox_editor/static/` | Editor (`index.html`, `app.js`) and A/B review (`review.html`) |
+| `vox_editor/static/` | Editor (`index.html`, `app.js`), A/B review (`review.html`) and collab inbox (`collab.html`) |
 | `exports/` | Exported undub JSON |
 | `mt_bakeoff/` | Translation model comparison script (results stay local) |
 | `notes/` | Development notes (`notes/CLAUDE.md`: method details, decisions, open threads) |
